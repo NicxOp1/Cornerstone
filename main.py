@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 import json
 import pytz
+from pydantic import BaseModel
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +20,17 @@ APP_ID = os.getenv("APP_ID")
 START_HOUR = time(7, 0)  # 7:00 AM
 END_HOUR = time(16, 0)   # 4:00 PM
 EASTERN_TIME = pytz.timezone("America/New_York")
+
+
+lista_horarios = [
+    "07:00",
+    "10:00",
+    "13:00"
+]
+class ScheduleData(BaseModel):
+    possible_times: list[str]
+    start: list[str]
+    end: list[str]
 
 async def get_access_token():
     try:
@@ -40,13 +52,15 @@ async def get_access_token():
         print(f"Exception while fetching token: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get access token: {str(e)}")
 
-async def check_availability(json):
+def check_availability(dato : list):
+    print("Checking availability...")
     # Hardcoded values
     overlap_threshold = 1
     slot_duration = "03:00"
 
     # Extract the data from the request body
-    body = json.json()
+    print(dato)
+    body = dato
 
     # Process the data (you can use the logic from your existing file)
     available_times = body[0]["possible_times"]
@@ -229,7 +243,7 @@ async def validate_work_area(client_address: str):
     except Exception as e:
         print(f"Exception while validating available slots: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
- """
+"""
 
 
 async def validate_available_slots(start_time: str, end_time: str):
@@ -344,9 +358,14 @@ async def booking_request(data: utils.BookingRequest):
         if not await validate_available_slots(start_time, end_time):
             print("Available slots validation failed.")
             return {"error": "No available slots for the requested time"}
+        
+        times = ScheduleData(possible_times = lista_horarios, start = [start_time], end = [end_time])
 
+        # Check availability
+        response = check_availability([times])
+        print(f"Response: {response}")
         print("Booking request validated successfully.")
-        return {"status": "Booking request validated successfully"}
+        return {"status": f"Booking request processed successfully. Dato: {response}"}
 
     except Exception as e:
         print(f"Exception while processing booking request: {str(e)}")
