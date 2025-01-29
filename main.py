@@ -1,12 +1,17 @@
 from datetime import datetime, date, timedelta, time
+from typing import Tuple, Dict
 from fastapi import FastAPI, Request, Response, HTTPException
 import requests
 import utils as utils
+import logging
 from dotenv import load_dotenv
 import os
 import json
 import pytz
 from pydantic import BaseModel
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -22,15 +27,12 @@ END_HOUR = time(16, 0)   # 4:00 PM
 EASTERN_TIME = pytz.timezone("America/New_York")
 
 
-lista_horarios = [
+possible_times = [
     "07:00",
     "10:00",
     "13:00"
 ]
-class ScheduleData(BaseModel):
-    possible_times: list[str]
-    start: list[str]
-    end: list[str]
+
 
 async def get_access_token():
     try:
@@ -40,7 +42,7 @@ async def get_access_token():
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             data={"grant_type": "client_credentials", "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
         )
-        print(f"Token response status: {response.status_code}")
+#        print(f"Token response status: {response.status_code}")
         if response.status_code == 200:
             token_data = response.json()
             print("Access token fetched successfully.")
@@ -52,15 +54,15 @@ async def get_access_token():
         print(f"Exception while fetching token: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get access token: {str(e)}")
 
-def check_availability(dato : list):
+def check_availability(ScheduleData : utils.ScheduleData):
     print("Checking availability...")
     # Hardcoded values
-    overlap_threshold = 1
+    overlap_threshold = 8
     slot_duration = "03:00"
 
     # Extract the data from the request body
-    print(dato)
-    body = dato
+    print(ScheduleData)
+    body = ScheduleData
 
     # Process the data (you can use the logic from your existing file)
     available_times = body[0]["possible_times"]
@@ -72,9 +74,9 @@ def check_availability(dato : list):
         busy_start_times.extend(schedule["start"])
         busy_end_times.extend(schedule["end"])
 
-    print(f"available_times: {available_times}")
-    print(f"busy_start_times: {busy_start_times}")
-    print(f"busy_end_times: {busy_end_times}")
+#    print(f"available_times: {available_times}")
+#    print(f"busy_start_times: {busy_start_times}")
+#    print(f"busy_end_times: {busy_end_times}")
 
     # Convert busy times to datetime objects
     busy_start_times = [
@@ -127,7 +129,10 @@ def check_availability(dato : list):
 
     # Format the response
     if valid_slots:
-        response = f'The available time slots for this day are: {sorted_slots}.'
+        response = {
+        "response": f"The available time slots for this day are: {sorted_slots}.",
+        "slots": sorted_slots  # Guarda los sorted_slots en la clave "slots"
+        }
     else:
         response = 'There are no available time slots. Could you please suggest another day?'
     return {"message": response}
@@ -186,65 +191,6 @@ async def validate_work_area(client_address: str):
     except Exception as e:
         print(f"Exception while validating work area: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-""" async def validate_technician_availability(start_time: str, end_time: str, skill_based: bool):
-    try:
-        print("Validating technician availability...")
-        url = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "startsOnOrAfter": start_time,
-            "endsOnOrBefore": end_time,
-            "skillBasedAvailability": skill_based
-        }
-        # Serialize datetime to ISO format string
-        serialized_payload = json.dumps(payload)
-        response = requests.post(url, headers=headers, data=serialized_payload)
-        print(f"Technician availability response status: {response.status_code}")
-        if response.status_code == 200:
-            availability = response.json()
-            utils.log_response("Technician Availability", availability)
-            is_available = availability.get('available', False)
-            print(f"Technician availability result: {is_available}")
-            return is_available
-        else:
-            print(f"Error fetching technician availability: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Error fetching technician availability")
-    except Exception as e:
-        print(f"Exception while validating technician availability: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) """
-
-
-""" async def validate_available_slots(start_date: str, end_date: str):
-    try:
-        print("Validating available slots...")
-        url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/export/bookings?from={start_date}&to={end_date}"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-    }
-        response = requests.get(url, headers=headers)
-        print(f"Available slots response status: {response.status_code}")
-        if response.status_code == 200:
-            bookings = response.json()
-            utils.log_response("Bookings", bookings)
-            print("Available slots validated successfully.")
-            return True  # Implement additional logic if necessary
-        else:
-            print(f"Error fetching bookings: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Error fetching bookings")
-    except Exception as e:
-        print(f"Exception while validating available slots: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-"""
-
 
 async def validate_available_slots(start_time: str, end_time: str):
     """
@@ -310,12 +256,11 @@ async def validate_available_slots(start_time: str, end_time: str):
             sorted_start = [slot["start"] for slot in sorted_slots]
             sorted_end = [slot["end"] for slot in sorted_slots]
 
-            print(f"Sorted available slots for {start_dt_local.date()}:")
-            print(f"Start: {sorted_start}")
-            print(f"End: {sorted_end}")
-
+#           print(f"Sorted available slots for {start_dt_local.date()}:")
+#           print(f"Start: {sorted_start}")
+#           print(f"End: {sorted_end}") 
             print("Available slots validated successfully.")
-            return {"start": sorted_start, "end": sorted_end}  # Return the sorted slots
+            return [{"possible_times":possible_times,"start":sorted_start,"end":sorted_end}]  # Return the sorted slots
 
         else:
             print(f"Error fetching bookings: {response.text}")
@@ -324,7 +269,98 @@ async def validate_available_slots(start_time: str, end_time: str):
         print(f"Exception while validating available slots: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def check_slot_availability(response_data, data_time: str) -> str:
+    """
+    Verifica si el horario en 'data_time' está en los slots disponibles.
 
+    :param response_data: Diccionario con la respuesta de los slots disponibles o un JSON en string.
+    :param data_time: Fecha y hora en formato ISO con UTC (Ejemplo: "2025-01-29T10:00:00Z").
+    :return: Mensaje indicando si hay un conflicto o si se puede reservar.
+    """
+    try:
+        # 🛑 Si response_data es un string JSON, convertirlo a diccionario
+        if isinstance(response_data, str):
+            try:
+                response_data = json.loads(response_data)  # Convertir string JSON a dict
+            except json.JSONDecodeError:
+                return "Error: Invalid JSON response format."
+
+        # 🛑 Validar que response_data sea un diccionario
+        if not isinstance(response_data, dict):
+            return "Error: response_data is not a valid dictionary."
+
+        # 🛑 Verificar si "message" es un string en lugar de un diccionario con "slots"
+        if isinstance(response_data.get("message"), str):
+            return response_data["message"]  # Si es un string, lo devolvemos directamente
+
+        # 📌 Convertir data_time a un objeto datetime en UTC
+        data_dt_utc = datetime.fromisoformat(data_time.replace("Z", "+00:00")).replace(tzinfo=pytz.utc)
+
+        # 📌 Convertir data.time a Eastern Time
+        data_dt_et = data_dt_utc.astimezone(EASTERN_TIME)
+
+        # 📌 Extraer la hora en formato HH:MM
+        data_hour = data_dt_et.strftime("%H:%M")
+
+        # 📌 Obtener la lista de slots disponibles de forma segura
+        available_slots = response_data.get("message", {}).get("slots", [])
+
+        # 📌 Verificar si la hora convertida está en los slots disponibles
+        if data_hour in available_slots:
+            return "No conflict, you can book."
+        else:
+            return response_data["message"]["response"]
+
+    except Exception as e:
+        return f"Error processing availability check: {str(e)}"
+
+
+
+async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:
+    print(f"{customer},datos de cliente")
+    url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
+
+    # Replace these placeholders with actual token and app key
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        customer.locations.address.country = "USA"
+        customer.locations.address.state = "SC"
+        payload = customer.model_dump(by_alias=True)
+        payload["locations"] = [payload["locations"]]
+        payload["address"] = customer.locations.address.model_dump()
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            customer_id = data.get("id")
+            location_id = data.get("locations")[0].get("id")
+            return (customer_id, location_id)
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"Failed to create customer: {response.text}",
+        )
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
+
+""" url:  """
+""" {
+  "name": "John Tester",
+  "type": "Residential",
+  "locations": {
+    "name": "Home",
+    "address": {
+      "street": "1003 W Clark St",
+      "city": "Urbana",
+      "zip": "61801"
+    }
+  }
+}
+ """
 app = FastAPI()
 
 @app.get("/")
@@ -332,7 +368,65 @@ def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
 
-@app.post("/bookSlot")
+@app.post("/create-job")
+async def create_job(request_data: Dict):
+    """
+    Endpoint para crear un cliente y luego usar sus datos para crear un trabajo.
+    """
+
+    try:
+        logger.info("Recibida solicitud para crear un trabajo.")  # Log inicial
+        
+        # Extraer los datos del cliente de la solicitud
+        customer_data = request_data.get("customer")
+
+        if not customer_data:
+            logger.error("Falta el campo 'customer' en la solicitud.")
+            raise HTTPException(status_code=400, detail="Missing 'customer' data in request.")
+
+        # LOG: Verificar la estructura del JSON recibido
+        logger.info(f"Datos recibidos para el cliente: {customer_data}")
+
+        # Convertir el JSON en un objeto CustomerCreateRequest
+        customer_address = utils.Address(
+            street=customer_data["locations"]["address"].get("street", ""),
+            city=customer_data["locations"]["address"].get("city", ""),
+            zip=customer_data["locations"]["address"].get("zip", "")
+        )
+        logger.info(f"Dirección del cliente creada: {customer_address}")
+
+        customer_location = utils.Location(
+            name=customer_data["locations"]["name"],
+            address=customer_address
+        )
+        logger.info(f"Ubicación del cliente creada: {customer_location}")
+
+        customer_request = utils.CustomerCreateRequest(
+            name=customer_data["name"],
+            type=customer_data.get("type", "Residential"),
+            locations=customer_location.model_dump()
+        )
+        logger.info(f"Solicitud de cliente creada: {customer_request}")
+
+        # Llamar a la función `create_customer` para obtener el customer_id y location_id
+        customer_id, location_id = await create_customer(customer_request)
+        logger.info(f"Cliente creado exitosamente con ID: {customer_id}, Ubicación ID: {location_id}")
+
+        # Aquí puedes agregar más llamadas a otras funciones, como crear un trabajo:
+        # job_id = await create_job_function(customer_id, location_id, ...)
+
+        return {
+            "message": "Customer created successfully.",
+            "customer_id": customer_id,
+            "location_id": location_id
+            # "job_id": job_id  # Descomenta esto cuando agregues la función de crear trabajo
+        }
+
+    except Exception as e:
+        logger.error(f"Error al procesar la solicitud: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/checkAvilability")
 async def booking_request(data: utils.BookingRequest):
 
     try:
@@ -355,22 +449,24 @@ async def booking_request(data: utils.BookingRequest):
         end_time = (datetime.fromisoformat(data.time.replace("Z", "+00:00")) + timedelta(seconds=duration_seconds)).isoformat()
 
         # Validate available slots
-        if not await validate_available_slots(start_time, end_time):
-            print("Available slots validation failed.")
-            return {"error": "No available slots for the requested time"}
-        
-        times = ScheduleData(possible_times = lista_horarios, start = [start_time], end = [end_time])
-
+        info = await validate_available_slots(start_time, end_time)
         # Check availability
-        response = check_availability([times])
-        print(f"Response: {response}")
-        print("Booking request validated successfully.")
-        return {"status": f"Booking request processed successfully. Dato: {response}"}
+        res = check_availability(info)
+        print(f"data of res: {res}")
+        return check_slot_availability(res,data.time)
 
     except Exception as e:
         print(f"Exception while processing booking request: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/get_time")
+def get_current_utc_time():
+    utc_now = datetime.now(pytz.utc)
+    return utc_now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+
 #dowload fastapi: pip install "fastapi[standard]"
 #dowload dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
+#dowload pytz: pip install pytz
 #start the server: fastapi dev main.py
