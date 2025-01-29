@@ -43,7 +43,7 @@ async def get_access_token():
 async def check_availability(json):
     # Hardcoded values
     overlap_threshold = 1
-    slot_duration = "01:00"
+    slot_duration = "03:00"
 
     # Extract the data from the request body
     body = json.json()
@@ -90,7 +90,7 @@ async def check_availability(json):
     # Prioritize times ending in ":00", then ":30", then ":15"
     priority_order = {":00": 1, ":30": 2, ":15": 3, ":45": 4}
     sorted_times = sorted(available_times_dt,
-                          key=lambda t: priority_order[t.strftime(":%M")])
+                        key=lambda t: priority_order[t.strftime(":%M")])
     # Calculate overlap for each slot
     slot_overlaps = {}
     for slot_start in sorted_times:
