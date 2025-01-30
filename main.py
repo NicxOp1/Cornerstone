@@ -368,64 +368,128 @@ def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
 
-@app.post("/create-job")
-async def create_job(request_data: Dict):
+@app.post("/create_customer")
+async def create_customer(customer: utils.CustomerCreateRequest):
     """
-    Endpoint para crear un cliente y luego usar sus datos para crear un trabajo.
+    Endpoint para crear un cliente en ServiceTitan.
     """
-
     try:
-        logger.info("Recibida solicitud para crear un trabajo.")  # Log inicial
-        
-        # Extraer los datos del cliente de la solicitud
-        customer_data = request_data.get("customer")
+        logger.info("Recibida solicitud para crear un cliente.")
 
-        if not customer_data:
-            logger.error("Falta el campo 'customer' en la solicitud.")
-            raise HTTPException(status_code=400, detail="Missing 'customer' data in request.")
-
-        # LOG: Verificar la estructura del JSON recibido
+        # ✅ Convertir el objeto `customer` a diccionario
+        customer_data = customer.model_dump()
         logger.info(f"Datos recibidos para el cliente: {customer_data}")
 
-        # Convertir el JSON en un objeto CustomerCreateRequest
-        customer_address = utils.Address(
-            street=customer_data["locations"]["address"].get("street", ""),
-            city=customer_data["locations"]["address"].get("city", ""),
-            zip=customer_data["locations"]["address"].get("zip", "")
-        )
-        logger.info(f"Dirección del cliente creada: {customer_address}")
+        # ✅ `locations` ya es una lista, no hace falta procesar como objeto único
+        locations = customer_data.get("locations", [])
 
-        customer_location = utils.Location(
-            name=customer_data["locations"]["name"],
-            address=customer_address
-        )
-        logger.info(f"Ubicación del cliente creada: {customer_location}")
+        if not locations:
+            raise HTTPException(status_code=400, detail="Missing 'locations' data in request.")
 
-        customer_request = utils.CustomerCreateRequest(
-            name=customer_data["name"],
-            type=customer_data.get("type", "Residential"),
-            locations=customer_location.model_dump()
-        )
-        logger.info(f"Solicitud de cliente creada: {customer_request}")
+        # ✅ Obtener PRIMERA ubicación (ServiceTitan parece requerir una sola)
+        location_data = locations[0]
 
-        # Llamar a la función `create_customer` para obtener el customer_id y location_id
-        customer_id, location_id = await create_customer(customer_request)
-        logger.info(f"Cliente creado exitosamente con ID: {customer_id}, Ubicación ID: {location_id}")
-
-        # Aquí puedes agregar más llamadas a otras funciones, como crear un trabajo:
-        # job_id = await create_job_function(customer_id, location_id, ...)
-
-        return {
-            "message": "Customer created successfully.",
-            "customer_id": customer_id,
-            "location_id": location_id
-            # "job_id": job_id  # Descomenta esto cuando agregues la función de crear trabajo
+        # ✅ Construir el payload correctamente
+        payload = {
+            "name": customer_data["name"],
+            "type": customer_data.get("type", "Residential"),
+            "locations": locations,  # ✅ Ya es una lista válida
+            "address": customer_data.get("address", {})  # ✅ Agregar address separado
         }
+
+        # ✅ Hacer la petición a ServiceTitan para crear el cliente
+        url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        response = requests.post(url, headers=headers, json=payload)
+        logger.info(f"Response de ServiceTitan: {response.status_code} - {response.text}")
+
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "message": "Customer created successfully.",
+                "customer_id": data.get("id"),
+                "location_id": data["locations"][0]["id"] if "locations" in data else None
+            }
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"ServiceTitan error: {response.text}"
+            )
 
     except Exception as e:
         logger.error(f"Error al procesar la solicitud: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/create-job/")
+async def create_job(job_request: utils.jobCreateToolRequest):
+    job_request = job_request.args  # Extraer argumentos correctamente
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+    access_token = await get_access_token()
+
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        # ✅ CREAR EL CLIENTE Y OBTENER SU ID
+        customer_response = await create_customer(job_request.customer)
+
+        # ✅ Extraer los IDs correctamente de la respuesta
+        customer_id = customer_response["customer_id"]
+        location_id = customer_response["location_id"]
+
+        # ✅ Construir el payload correctamente
+        payload = {
+            "customerId": customer_id,
+            "locationId": location_id,
+            "jobTypeId": job_request.jobTypeId,  # ID del tipo de trabajo
+            "priority": job_request.priority,  # Prioridad
+            "businessUnitId": job_request.businessUnitId,  # Unidad de negocio
+            "campaignId": job_request.campaignId,  # Campaña
+            "appointments": [
+                {
+                    "start": job_request.jobStartTime,
+                    "end": job_request.jobEndTime,
+                    "arrivalWindowStart": job_request.jobStartTime,
+                    "arrivalWindowEnd": job_request.jobEndTime,
+                }
+            ],
+            "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
+            "scheduledTime": datetime.now().strftime("%H:%M"),
+            "summary": "Plumbing Inspection",
+        }
+
+        # ✅ ENVIAR LA PETICIÓN A SERVICE TITAN
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code == 200:
+            return {"status": "Job request booked", "job_id": response.json().get("id")}
+        else:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"External API call failed with status code {response.status_code}: {response.text}",
+            )
     
+    except requests.exceptions.HTTPError as http_err:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"HTTP error occurred: {http_err}",
+        )
+    except Exception as err:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred: {err}",
+        )
+
 @app.post("/checkAvilability")
 async def booking_request(data: utils.BookingRequest):
 
