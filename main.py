@@ -524,7 +524,7 @@ async def booking_request(data: utils.BookingRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/get_time")
-def get_current_utc_time():
+async def get_current_utc_time():
     utc_now = datetime.now(pytz.utc)
     return utc_now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
