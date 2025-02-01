@@ -9,6 +9,8 @@ import os
 import json
 import pytz
 from pydantic import BaseModel
+import pandas as pd
+import math
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -33,6 +35,94 @@ possible_times = [
     "13:00"
 ]
 
+app = FastAPI()
+
+# Datos harcodeados
+
+jobs_data = {
+    "Job Type": [
+        "Outlet Install", "AC Maintanence", "Boiler Install", "Duct Cleaning", "Plumbing Service",
+        "HVAC Install", "HVAC Troubleshoot", "Furnace Install", "MiniSplit Install", "Water Treatment",
+        "Assist Other Service", "Bucket Truck", "Call Back", "Cleaning Sales Opportunity", "Cleaning Services",
+        "Drain Cleaning", "Dryer Vent Cleaning", "Electrical Troubleshoot", "Emergency Call", "Fixture Install",
+        "Follow Up Phone Call", "Generator Install", "Generator Maintenance", "Handyman Services", "Heating System Maintenance",
+        "LED Retrofit", "Miscellaneous", "No Heat", "No Hot Water", "Panel Upgrade", "PERMIT", "Sales Opportunity",
+        "Service Upgrade", "Visual Inspection", "Water Treatment Quote"
+    ],
+    "Job Code": [
+        42076309, 48838652, 7182465, 7522441, 5879699,
+        48841042, 41950467, 4931845, 39203718, 46387202,
+        10750638, 3241224, 395, 3676033, 3576199,
+        48339970, 29707780, 4356, 393, 396,
+        41106945, 399, 10749604, 3719556, 48837239,
+        2199172, 391, 39164700, 39164743, 397, 3297029,
+        394, 3077, 38049409, 48988302
+    ],
+    "Business Units": [
+        "MA - Electrical, NH - Electrical", "HVAC Repair/Service", "HVAC Install", "NE - Cleaning Services", "NE - Plumbing",
+        "HVAC Install", "HVAC Repair/Service", "HVAC Install", "HVAC Install", "NE - Plumbing",
+        "Other", "Other", "Other", "NE - Cleaning Services", "NE - Cleaning Services",
+        "NE - Plumbing", "NE - Cleaning Services", "MA - Electrical, NH - Electrical", "Other", "NE - Handyman Services",
+        "Other", "Other", "Other", "NE - Handyman Services", "HVAC Repair/Service",
+        "MA - Electrical, NH - Electrical", "Other", "HVAC Repair/Service", "HVAC Repair/Service", "MA - Electrical, NH - Electrical", "Other",
+        "Other", "Other", "Other", "NE - Plumbing"
+    ]
+}
+jobs_df = pd.DataFrame(jobs_data)
+
+services_by_zone = {
+    "Location": [
+        "Methuen, MA", "Andover, MA", "North Andover, MA", "Amesbury, MA", "Pelham, MA",
+        "Plaistow, MA", "Haverhill, MA", "Newburyport, MA", "Derry, NH", "Londonderry, NH",
+        "Hudson, NH", "Windham, NH", "Salem, NH", "Atkinson, NH", "Arlington, MA",
+        "Manchester, NH", "Acton, MA", "Concord, NH"
+    ],
+    "Available Services": [
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps", "Plumbing"],
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps", "Plumbing"],
+        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["AC Repair", "AC Installation", "Electrician", "Handyman Services", "Heat Pumps"],
+        ["HVAC Repair", "Plumbing Repair", "Electrical Services", "Home Modifications for Seniors", "Other Services"],
+        ["HVAC Repair", "Plumbing Repair", "Electrical Services", "Home Modifications for Seniors", "Other Services"],
+        ["HVAC Repair", "Plumbing Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
+        ["HVAC Repair", "Plumbing Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
+        ["Plumbing Services", "HVAC Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
+        ["Electrician"],
+        ["Electrician"],
+        ["Electrician"],
+        ["Electrician"]
+    ]
+}
+services_df = pd.DataFrame(services_by_zone)
+
+# Funciones auxiliares
+def get_distance_category(distance):
+    if 0 <= distance <= 25:
+        return "0-25 miles"
+    elif 25 < distance <= 50:
+        return "25-50 miles"
+    else:
+        return "Out of range"
+
+def get_direction(origin, destination):
+    lat1, lon1 = origin
+    lat2, lon2 = destination
+    
+    if lat2 > lat1 and lon2 > lon1:
+        return "NE"
+    elif lat2 > lat1 and lon2 < lon1:
+        return "NW"
+    elif lat2 < lat1 and lon2 > lon1:
+        return "SE"
+    elif lat2 < lat1 and lon2 < lon1:
+        return "SW"
+    else:
+        return "Unknown"
 
 async def get_access_token():
     try:
@@ -54,143 +144,69 @@ async def get_access_token():
         print(f"Exception while fetching token: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get access token: {str(e)}")
 
-def check_availability(ScheduleData : utils.ScheduleData):
-    print("Checking availability...")
-    # Hardcoded values
-    overlap_threshold = 8
-    slot_duration = "03:00"
+def check_availability(request):
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+    # Acceso a los atributos del objeto request usando la notación de punto
+    address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
+    
+    if not address:
+        return {"error": "La dirección no es válida."}
+    
+    # URL de la API geocode.xyz con la autenticación
+    url = f"https://geocode.xyz/{address}?json=1&auth=459731876914636430370x45609"
 
-    # Extract the data from the request body
-    print(ScheduleData)
-    body = ScheduleData
+    # Hacer la solicitud GET
+    resp = requests.get(url)
+        
+    # Comprobar si la respuesta es exitosa (200 OK)
+    if resp.status_code == 200:
+            json_data = resp.json()
+    
+    # Extraer latitud y longitud
+    lat = json_data.get("latt")
+    lon = json_data.get("longt")
 
-    # Process the data (you can use the logic from your existing file)
-    available_times = body[0]["possible_times"]
-    # Initialize lists to store all busy start and end times
-    busy_start_times = []
-    busy_end_times = []
-    # Iterate through each schedule data
-    for schedule in body:
-        busy_start_times.extend(schedule["start"])
-        busy_end_times.extend(schedule["end"])
-
-#    print(f"available_times: {available_times}")
-#    print(f"busy_start_times: {busy_start_times}")
-#    print(f"busy_end_times: {busy_end_times}")
-
-    # Convert busy times to datetime objects
-    busy_start_times = [
-        datetime.strptime(time, "%Y-%m-%d %H:%M") for time in busy_start_times
-    ]
-    busy_end_times = [
-        datetime.strptime(time, "%Y-%m-%d %H:%M") for time in busy_end_times
-    ]
-
-    # Function to check for overlap
-    def count_overlaps(slot_start, slot_end):
-        overlap_count = 0
-        for busy_start, busy_end in zip(busy_start_times, busy_end_times):
-            # Check if the slot overlaps with any busy time
-            if slot_start < busy_end and slot_end > busy_start:
-                overlap_count += 1
-        return overlap_count
-
-    # Get the current date
-    current_date = datetime.now().strftime("%Y-%m-%d")
-
-    # Convert available times to datetime
-    available_times_dt = [
-        datetime.strptime(f"{current_date} {t}", "%Y-%m-%d %H:%M")
-        for t in available_times
-    ]
-    # Prioritize times ending in ":00", then ":30", then ":15"
-    priority_order = {":00": 1, ":30": 2, ":15": 3, ":45": 4}
-    sorted_times = sorted(available_times_dt,
-                        key=lambda t: priority_order[t.strftime(":%M")])
-    # Calculate overlap for each slot
-    slot_overlaps = {}
-    for slot_start in sorted_times:
-        slot_end = slot_start + timedelta(
-            hours=int(slot_duration.split(":")[0]),
-            minutes=int(slot_duration.split(":")[1]))
-        overlap_count = count_overlaps(slot_start, slot_end)
-        slot_overlaps[slot_start.strftime("%H:%M")] = overlap_count
-
-    print(f"slot_overlaps: {slot_overlaps}")
-
-    # Filter out slots with overlap greater than 1
-    filtered_slots = [slot for slot, overlap in slot_overlaps.items() if overlap <= overlap_threshold]
-    # Sort the filtered slots by time
-    sorted_slots = sorted(filtered_slots, key=lambda item: priority_order[f":{item.split(':')[1]}"])
-    valid_slots = sorted_slots[:2]
-
-    print(f"sorted_slots: {sorted_slots}")
-    print(f"valid_slots: {valid_slots}")
-
-    # Format the response
-    if valid_slots:
-        response = {
-        "response": f"The available time slots for this day are: {sorted_slots}.",
-        "slots": sorted_slots  # Guarda los sorted_slots en la clave "slots"
-        }
-    else:
-        response = 'There are no available time slots. Could you please suggest another day?'
-    return {"message": response}
-
-async def validate_job_type(job_type_id: int):
     try:
-        print("Validating job type...")
-        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/{job_type_id}"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-    }
-        response = requests.get(url, headers=headers)
-        print(f"Job type response status: {response.status_code}")
-        if response.status_code == 200:
-            job_type = response.json()
-            utils.log_response("Job Types", job_type)
-            if job_type.get('id') == job_type_id:
-                    print(f"Job type validated successfully. Duration: {job_type.get('duration')} seconds")
-                    return job_type.get('duration')  # Return the duration in seconds
-            print("Job type validation failed.")
-            return None
-        else:
-            print(f"Error fetching job types: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Error fetching job types")
-    except Exception as e:
-        print(f"Exception while validating job type: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        lat = float(lat)
+        lon = float(lon)
+    except ValueError:
+        return {"error": "Las coordenadas proporcionadas no son válidas."}
 
-async def validate_work_area(client_address: str):
-    try:
-        print("Validating work area...")
-        url = f"https://api.servicetitan.io/settings/v2/tenant/{TENANT_ID}/business-units"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-    }
-        response = requests.get(url, headers=headers)
-        print(f"Work area response status: {response.status_code}")
-        if response.status_code == 200:
-            business_units = response.json()
-            # Iterate over the 'data' key in the response
-            for bu in business_units["data"]:
-                if bu["address"]["city"] == client_address.split(", ")[1] and bu["address"]["zip"] == client_address.split(", ")[2]:
-                    print("Work area validated successfully.")
-                    return True
-            print("Work area validation failed.")
-            return False
-        else:
-            print(f"Error fetching business units: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Error fetching business units")
-    except Exception as e:
-        print(f"Exception while validating work area: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    print(lat, lon)
+
+    if lat is None or lon is None:
+        return {"error": "No se pudieron obtener las coordenadas de la dirección."}
+    
+    # Convertir las coordenadas a radianes
+    lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+    lat2, lon2 = math.radians(lat), math.radians(lon)
+
+    # Diferencia entre las coordenadas
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+
+    # Fórmula de Haversine
+    a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+    # Distancia en millas
+    distance = round(R * c, 2)
+
+    print(distance)
+
+    if distance > 50:
+        return {"error": "No hay disponibilidad de servicios en la zona."}
+    
+    # Obtener los servicios disponibles en la zona
+    distance_category = get_distance_category(distance)
+    print (distance_category)
+
+    # Obtener los servicios disponibles en la dirección
+    direction = get_direction(PO_BOX_SALEM, (lat, lon))
+    print(direction)
+
+    return distance
 
 async def validate_available_slots(start_time: str, end_time: str):
     """
@@ -314,8 +330,6 @@ def check_slot_availability(response_data, data_time: str) -> str:
     except Exception as e:
         return f"Error processing availability check: {str(e)}"
 
-
-
 async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:
     print(f"{customer},datos de cliente")
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
@@ -361,7 +375,7 @@ async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, s
   }
 }
  """
-app = FastAPI()
+
 
 @app.get("/")
 def read_root():
@@ -497,31 +511,28 @@ async def booking_request(data: utils.BookingRequest):
         print("Processing booking request...")
         print(f"Request data: {data}")
 
-        # Validate job type
-        duration_seconds = await validate_job_type(data.jobType)
-        if duration_seconds is None:
-            print("Job type validation failed.")
-            return {"error": "Invalid job type"}
-
-        # Validate work area
-        if not await validate_work_area(data.address):
-            print("Work area validation failed.")
-            return {"error": "Service not available in the given area"}
-
+        # Obtener las coordenadas y validar disponibilidad
+        availability_info = await check_availability(data)
+        if "error" in availability_info:
+            print(availability_info["error"])
+            print("check 1")
+            return availability_info  # Si hay un error, devolverlo directamente
         # Validate technician availability
         start_time = datetime.fromisoformat(data.time.replace("Z", "+00:00")).isoformat()
-        end_time = (datetime.fromisoformat(data.time.replace("Z", "+00:00")) + timedelta(seconds=duration_seconds)).isoformat()
+        end_time = (datetime.fromisoformat(data.time.replace("Z", "+00:00")) + timedelta(hours=3)).isoformat()
 
         # Validate available slots
         info = await validate_available_slots(start_time, end_time)
         # Check availability
         res = check_availability(info)
         print(f"data of res: {res}")
+        print("check 2")
         return check_slot_availability(res,data.time)
 
     except Exception as e:
         print(f"Exception while processing booking request: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/get_time")
 async def get_current_utc_time():
