@@ -116,3 +116,16 @@ class ScheduleData(BaseModel):
 class Location(BaseModel):
     name: str
     address: Address """
+
+    # Modelos de entrada y salida
+class JobRequest(BaseModel):
+    job_id: int
+    latitude: float
+    longitude: float
+
+class JobResponse(BaseModel):
+    job_type: str
+    business_units: str
+    distance_miles: float
+    distance_category: str
+    direction: str
