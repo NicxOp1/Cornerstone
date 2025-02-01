@@ -33,6 +33,7 @@ possible_times = [
     "13:00"
 ]
 
+print("funciono")
 
 async def get_access_token():
     try:
