@@ -1,20 +1,8 @@
-# FastAPI, el framework principal para la creación de APIs
 fastapi==0.95.0
-
-# Uvicorn, el servidor ASGI para ejecutar FastAPI
 uvicorn==0.22.0
-
-# requests, para hacer peticiones HTTP
 requests==2.28.1
-
-# python-dotenv, para cargar variables de entorno desde archivos .env
 python-dotenv==0.19.2
-
-# pytz, para el manejo de zonas horarias
 pytz==2023.2
-
-# pydantic, para la validación de datos en FastAPI
 pydantic==1.10.2
-
-# pandas, para análisis de datos
 pandas==1.5.3
+numpy==1.23.5 
