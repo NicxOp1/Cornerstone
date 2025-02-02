@@ -1,0 +1,14 @@
+# FastAPI con soporte estándar (incluye dependencias como 'pydantic' y 'uvicorn')
+fastapi[standard]==0.95.0
+
+# Carga de variables de entorno desde archivos .env
+python-dotenv==0.19.2
+
+# Manejo de zonas horarias
+pytz==2023.2
+
+# Análisis de datos con Pandas
+pandas==1.5.3
+
+# Uvicorn (servidor ASGI recomendado para FastAPI, necesario para correr el servidor)
+uvicorn==0.22.0

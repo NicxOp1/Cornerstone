@@ -647,4 +647,5 @@ async def get_current_utc_time():
 #dowload fastapi: pip install "fastapi[standard]"
 #dowload dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
 #dowload pytz: pip install pytz
+#dowload pandas: pip install pandas
 #start the server: fastapi dev main.py
