@@ -162,6 +162,27 @@ async def get_access_token():
 async def check_availability(request):
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
+    print("Checking if is customer...")
+    url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+    response_customer = requests.get(url_customer, headers=headers)
+    print(f"Customer response status: {response_customer.status_code}")
+    if response_customer.status_code == 200:
+        customer_info_json = response_customer.json()
+
+    if customer_info_json["data"][0]["name"] == request.name:
+        request.isCustomer = True
+        print("Is Customer")
+    else:
+        request.isCustomer = False
+        print("Not Customer")
+
+
     print("Checking availability...")
     # Comprobar si hay disponibilidad laboral
     job_info = get_job_info(request.jobType)
@@ -169,14 +190,8 @@ async def check_availability(request):
     if job_info is None:
         print("No job found")
         return False
-    
+
     url = f"https://api.servicetitan.io/settings/v2/tenant/{TENANT_ID}/business-units"
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
     response = requests.get(url, headers=headers)
     print(f"Business units response status: {response.status_code}")
     if response.status_code == 200:
@@ -189,26 +204,28 @@ async def check_availability(request):
 
         matching_units = [business_units[unit] for unit in job_units if unit in business_units]
 
-
-    # Acceso a los atributos del objeto request usando la notación de punto
-    address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
-    
-    if not address:
-        return {"error": "La dirección no es válida."}
-    
-    # URL de la API geocode.xyz con la autenticación
-    url = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-
-    # Hacer la solicitud GET
-    resp = requests.get(url)
+    if request.isCustomer == False:
+        # Acceso a los atributos del objeto request usando la notación de punto
+        address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
         
-    # Comprobar si la respuesta es exitosa (200 OK)
-    if resp.status_code == 200:
-            json_data = resp.json()
-    
-    # Extraer latitud y longitud
-    lat = json_data.get("latt")
-    lon = json_data.get("longt")
+        if not address:
+            return {"error": "La dirección no es válida."}
+        
+        # URL de la API geocode.xyz con la autenticación
+        url = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+
+        # Hacer la solicitud GET
+        resp = requests.get(url)
+            
+        # Comprobar si la respuesta es exitosa (200 OK)
+        if resp.status_code == 200:
+                json_data = resp.json()
+        
+        # Extraer latitud y longitud
+        lat = json_data.get("latt")
+        lon = json_data.get("longt")
+    elif request.isCustomer == True:
+        lat, lon = customer_info_json["data"][0]["address"]["latitude"], customer_info_json["data"][0]["address"]["longitude"]
 
     try:
         lat = float(lat)
@@ -240,10 +257,10 @@ async def check_availability(request):
         return {"error": "No hay disponibilidad de servicios en la zona."}
     
     # Obtener los servicios disponibles en la zona
-    distance_category = get_distance_category(distance)
+    # distance_category = get_distance_category(distance)
 
     # Obtener los servicios disponibles en la dirección
-    direction = get_direction(PO_BOX_SALEM, (lat, lon))
+    # direction = get_direction(PO_BOX_SALEM, (lat, lon))
 
     result = {
         "JobCode": job_info["Job Code"],
@@ -253,7 +270,6 @@ async def check_availability(request):
     return result
 
 async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:
-    print(f"{customer},datos de cliente")
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
 
     # Replace these placeholders with actual token and app key
@@ -265,17 +281,26 @@ async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, s
     }
 
     try:
-        customer.locations.address.country = "USA"
-        customer.locations.address.state = "SC"
+        if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
+            customer.locations[0].address.country = "USA"
+            customer.locations[0].address.state = "SC"
+
         payload = customer.model_dump(by_alias=True)
-        payload["locations"] = [payload["locations"]]
-        payload["address"] = customer.locations.address.model_dump()
+
+        # Evita listas anidadas
+        if not isinstance(payload["locations"], list):
+            payload["locations"] = [payload["locations"]]
+
+        payload["address"] = customer.locations[0].address.model_dump()
+
+
         response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
             data = response.json()
             customer_id = data.get("id")
             location_id = data.get("locations")[0].get("id")
-            return (customer_id, location_id)
+            return {"customer_id": customer_id, "location_id": location_id}
+
         raise HTTPException(
             status_code=response.status_code,
             detail=f"Failed to create customer: {response.text}",
@@ -302,7 +327,7 @@ def filter_availabilities(availabilities):
                 })
     return available_slots
 
-def transform_availabilities(available_slots):
+def transform_availabilities(available_slots, business_id):
     """Transforms the available slots to return only the first technician and the slot time."""
     transformed_slots = []
 
@@ -314,7 +339,8 @@ def transform_availabilities(available_slots):
         # Append the transformed slot
         transformed_slots.append({
             "slot": start_time,
-            "id": technician["id"]
+            "id": technician["id"],
+            "businessId": business_id
         })
 
     return transformed_slots
@@ -358,7 +384,7 @@ async def check_technician_availability(request, time):
     if response.status_code == 200:
         data = response.json()
         available_slots = filter_availabilities(data.get("availabilities", []))
-        response = transform_availabilities(available_slots)
+        response = transform_availabilities(available_slots, request["MatchingUnits"][0])
         return json.dumps(response, indent=4)  # Retorna la disponibilidad formateada
     else:
         print("Error en la solicitud:", response.status_code, response.text)
@@ -369,11 +395,8 @@ def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
 
-@app.post("/create_customer")
+""" @app.post("/create_customer")
 async def create_customer(customer: utils.CustomerCreateRequest):
-    """
-    Endpoint para crear un cliente en ServiceTitan.
-    """
     try:
         logger.info("Recibida solicitud para crear un cliente.")
 
@@ -426,10 +449,11 @@ async def create_customer(customer: utils.CustomerCreateRequest):
     except Exception as e:
         logger.error(f"Error al procesar la solicitud: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+ """
 
 @app.post("/create-job/")
 async def create_job(job_request: utils.jobCreateToolRequest):
-    job_request = job_request.args  # Extraer argumentos correctamente
+    job_request = job_request.args
 
     url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
     access_token = await get_access_token()
@@ -441,10 +465,9 @@ async def create_job(job_request: utils.jobCreateToolRequest):
     }
 
     try:
-        # ✅ CREAR EL CLIENTE Y OBTENER SU ID
+        # ✅ CREAR CLIENTE Y OBTENER SU ID
         customer_response = await create_customer(job_request.customer)
-
-        # ✅ Extraer los IDs correctamente de la respuesta
+        print(f"Customer response: {customer_response}")
         customer_id = customer_response["customer_id"]
         location_id = customer_response["location_id"]
 
@@ -452,10 +475,10 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         payload = {
             "customerId": customer_id,
             "locationId": location_id,
-            "jobTypeId": job_request.jobTypeId,  # ID del tipo de trabajo
-            "priority": job_request.priority,  # Prioridad
-            "businessUnitId": job_request.businessUnitId,  # Unidad de negocio
-            "campaignId": job_request.campaignId,  # Campaña
+            "jobTypeId": job_request.jobTypeId,
+            "priority": job_request.priority,
+            "businessUnitId": job_request.businessUnitId,
+            "campaignId": job_request.campaignId,
             "appointments": [
                 {
                     "start": job_request.jobStartTime,
@@ -469,27 +492,49 @@ async def create_job(job_request: utils.jobCreateToolRequest):
             "summary": "Plumbing Inspection",
         }
 
-        # ✅ ENVIAR LA PETICIÓN A SERVICE TITAN
+        # ✅ ENVIAR SOLICITUD A SERVICE TITAN
         response = requests.post(url, headers=headers, json=payload)
 
-        if response.status_code == 200:
-            return {"status": "Job request booked", "job_id": response.json().get("id")}
-        else:
+        if response.status_code != 200:
             raise HTTPException(
                 status_code=response.status_code,
-                detail=f"External API call failed with status code {response.status_code}: {response.text}",
+                detail=f"Failed to create job: {response.text}",
             )
-    
-    except requests.exceptions.HTTPError as http_err:
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=f"HTTP error occurred: {http_err}",
-        )
+
+        job_data = response.json()
+
+        last_appointment_id = job_data.get("lastAppointmentId")
+
+        if not last_appointment_id:
+            raise HTTPException(status_code=500, detail="No appointment ID returned from API")
+
+        # ✅ VALIDAR SI EL TÉCNICO ESTÁ PRESENTE
+        if not job_request.technician:
+            raise HTTPException(status_code=400, detail="Technician ID is missing")
+
+        # ✅ ENVIAR LA SOLICITUD PARA ASIGNAR EL TÉCNICO
+        url_tech = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/appointment-assignments/assign-technicians"
+        
+        payloadTech = {
+            "jobAppointmentId": last_appointment_id,
+            "technicianIds": [job_request.technician]
+        }
+
+        tech_response = requests.post(url_tech, headers=headers, json=payloadTech)
+
+        if tech_response.status_code != 200:
+            raise HTTPException(
+                status_code=tech_response.status_code,
+                detail=f"Failed to assign technician: {tech_response.text}",
+            )
+
+        print(f"job data: {job_data}")
+        return {"status": "Job request booked", "job_id": job_data.get("id")}
+
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
     except Exception as err:
-        raise HTTPException(
-            status_code=500,
-            detail=f"An error occurred: {err}",
-        )
+        raise HTTPException(status_code=500, detail=f"An error occurred: {err}")
 
 @app.post("/checkAvilability")
 async def booking_request(data: utils.BookingRequest):
@@ -503,10 +548,10 @@ async def booking_request(data: utils.BookingRequest):
             print(job_info["error"])
             return job_info
     
-        print(job_info)
+        print(f"JOB INFO: {job_info}")
 
         tech_info = await check_technician_availability(job_info, data.time)
-        print(tech_info)
+        print(f"TECHNICIAN INFO: {tech_info}")
         return tech_info
     
     except Exception as e:

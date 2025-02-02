@@ -39,6 +39,7 @@ class JobCreateRequest(BaseModel):
     priority: str  # ✅ Prioridad (Normal, Alta, etc.)
     businessUnitId: int  # ✅ ID de la unidad de negocio
     campaignId: int  # ✅ ID de la campaña de marketing
+    technician: int
 
     jobStartTime: str = Field(
         default=(datetime.now() + timedelta(hours=5)).strftime("%Y-%m-%d %H:%M"),
