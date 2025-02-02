@@ -252,6 +252,202 @@ async def check_availability(request):
     }
 
     return result
+    
+
+async def get_jobs(customer_id: int):
+    print('funcion get_jobs')
+    print('customer_id',customer_id)
+    try:
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+        print(f"Consultando trabajos del cliente {customer_id}")
+
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            jobs_data = response.json()
+            if jobs_data and "data" in jobs_data and len(jobs_data["data"]) > 0:
+                last_appointment_id = jobs_data["data"][0].get("lastAppointmentId")  
+                return last_appointment_id
+            return None  
+        else:
+            print(f"Error en la solicitud de trabajos: {response.status_code}")
+            return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener trabajos: {e}")
+        return None
+
+
+async def get_customer(request: Request, customer_name):
+    print('funcion get_customer')
+    
+    try:
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        
+        base_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?name={customer_name}"
+        
+        response = requests.get(base_url, headers=headers)
+
+        if response.status_code == 200:
+            customer_data = response.json()
+            
+
+            # Si la búsqueda fue por nombre, obtener el ID del primer resultado
+            if "data" in customer_data and len(customer_data["data"]) > 0:
+                customer_id = customer_data["data"][0].get("id") 
+            else:
+                return {"error": "No se encontró un cliente válido."}    
+            
+            print('aqui esta el customer_id',customer_id)
+            # Obtener el lastAppointmentId si hay un customer_id válido
+            last_appointment_id = await get_jobs(customer_id)   
+         
+
+            return {
+                "customer_data": customer_data,
+                "lastAppointmentId": last_appointment_id
+            } 
+            
+
+        
+
+        else:
+            return {"error": f"Error en la solicitud: {response.status_code}", "details": response.text}
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener cliente: {e}")
+        return {"error": "Error al realizar la solicitud externa."}
+        
+
+print("empieza la vista  de reschedule aqui")
+@app.post("/reschedule_appointment")
+async def reschedule_appointment(request: Request):
+    access_token = await get_access_token()
+    print("Empiezo la vista aquí")
+    
+    try:
+        body = await request.json()
+        print("Cuerpo de la solicitud recibido:", body)
+    except Exception as e:
+        print(f"Error al leer el cuerpo de la solicitud: {e}")
+        return {"error": "Error al procesar el cuerpo de la solicitud."}
+    
+
+    customer_name = body.get("name")
+    print('customer_nameeeee', customer_name)
+    start = body.get("start")
+    end = body.get("end")
+
+    if not start or not end:
+        return {"error": "Se requieren las fechas 'start' y 'end'."}
+    
+    customer_data = await get_customer(request, customer_name)
+
+    # Obtener el appointmentId asociado al cliente
+    appointment_id = customer_data.get("lastAppointmentId")
+
+    if not appointment_id:
+        return {"error": "No se encontró una agenda válida para el cliente."}
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments/{appointment_id}/reschedule"
+
+
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+  
+    payload = {
+        "start": start,
+        "end": end
+    }
+    
+    # Realizar la solicitud PATCH
+    response = requests.patch(url, json=payload, headers=headers)
+    print(f"Respuesta de la API externa: {response.status_code}")
+        
+    # Devolver la respuesta de la API externa
+    if response.status_code == 200:
+         return response.json()
+    else:
+        return {"error": f"Error en la solicitud: {response.status_code}", "details": response.text}
+    print(f"Error al realizar la solicitud PATCH: {e}")
+    return {"error": "Error al realizar la solicitud externa."} 
+
+
+
+
+
+
+
+    
+@app.post("/assign-technicians/{tenant_id}")
+async def assign_technicians(request: Request, tenant_id: int):
+    print(f"Recibiendo solicitud para asignar técnicos al tenant {tenant_id}")
+
+    try:
+        # Obtener los datos del cuerpo de la solicitud
+        body = await request.json()
+        print("Cuerpo de la solicitud recibido:", body)
+
+        job_appointment_id = body.get("jobAppointmentId")
+        technician_ids = body.get("technicianIds")
+
+        # Validar que el jobAppointmentId y technicianIds estén presentes
+        if not job_appointment_id or not technician_ids:
+            return {"error": "Se requieren 'jobAppointmentId' y 'technicianIds'."}
+
+    except Exception as e:
+        print(f"Error al leer el cuerpo de la solicitud: {e}")
+        return {"error": "Error al procesar el cuerpo de la solicitud."}
+
+    # URL del endpoint externo
+    url = f"https://api.servicetitan.io/dispatch/v2/tenant/{tenant_id}/appointment-assignments/assign-technicians"
+    
+    # Obtener el token de acceso (Aquí deberías implementar la obtención real del token)
+    access_token = "TU_ACCESS_TOKEN"  # Cambia esto por una función que obtenga el token
+    print(f"Token de acceso obtenido: {access_token}")
+
+    # Encabezados
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "ST-App-Key": "APP_ID",  # Cambia esto por tu APP_ID real
+        "Content-Type": "application/json",
+    }
+
+    # Cuerpo de la solicitud para la API externa
+    payload = {
+        "jobAppointmentId": job_appointment_id,
+        "technicianIds": technician_ids
+    }
+
+    try:
+        # Realizar la solicitud POST
+        response = requests.post(url, json=payload, headers=headers)
+        print(f"Respuesta de la API externa: {response.status_code}")
+        
+        # Devolver la respuesta de la API externa
+        if response.status_code == 200:
+            return response.json()  # Devuelve la respuesta en formato JSON
+        else:
+            return {"error": f"Error en la solicitud: {response.status_code}", "details": response.text}
+    except requests.exceptions.RequestException as e:
+        print(f"Error al realizar la solicitud POST: {e}")
+        return {"error": "Error al realizar la solicitud externa."}    
+
 
 async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:
     print(f"{customer},datos de cliente")
