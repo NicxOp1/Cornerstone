@@ -65,7 +65,6 @@ class BookingRequest(BaseModel):
     jobType: int = Field(..., description="ID of the job type")
     locations: Location = Field(description="Details about the location")
     isCustomer: bool = Field(..., description="If the user is a customer")
-    reSchedule: bool = Field(description="If the user is rescheduling")
 
 
 class TechnicianAvailabilityRequest(BaseModel):
