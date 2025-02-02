@@ -65,6 +65,7 @@ class BookingRequest(BaseModel):
     jobType: int = Field(..., description="ID of the job type")
     locations: Location = Field(description="Details about the location")
     isCustomer: bool = Field(..., description="If the user is a customer")
+    reSchedule: bool = Field(description="If the user is rescheduling")
 
 
 class TechnicianAvailabilityRequest(BaseModel):
@@ -81,3 +82,7 @@ class ScheduleData(BaseModel):
     possible_times: list[str]
     start: list[str]
     end: list[str]
+
+class ReScheduleData(BaseModel):
+    newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
+    name: str = Field(..., description="Name of the customer")

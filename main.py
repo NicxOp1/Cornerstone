@@ -114,7 +114,7 @@ def get_job_info(job_id):
 
         return job_info
     else:
-        return None
+        return "Other"
 
 def get_distance_category(distance):
     if 0 <= distance <= 25:
@@ -185,6 +185,7 @@ async def check_availability(request):
 
     print("Checking availability...")
     # Comprobar si hay disponibilidad laboral
+    print(request.jobType)
     job_info = get_job_info(request.jobType)
     print(job_info)
     if job_info is None:
@@ -366,7 +367,7 @@ async def check_technician_availability(request, time):
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
     }
-
+    
     body = {
         "startsOnOrAfter": starts,
         "endsOnOrBefore": ends,
@@ -390,66 +391,54 @@ async def check_technician_availability(request, time):
         print("Error en la solicitud:", response.status_code, response.text)
         return json.dumps({"error": "Failed to fetch availability"}, indent=4)
 
+async def check_technician_availability_schedule(request, time):
+    print("Checking technician availability...")
+    
+    # Convertir la fecha del path a formato ISO (YYYY-MM-DD)
+    try:
+        start_date = datetime.strptime(time[:10], "%Y-%m-%d")
+    except ValueError:
+        return json.dumps({"error": "Invalid date format. Use YYYY-MM-DDTHH:MM:SS or YYYY-MM-DD."}, indent=4)
+
+
+    # Mantener la hora constante
+    starts = start_date.strftime("%Y-%m-%dT06:08:31Z")
+    ends = (start_date + timedelta(days=1)).strftime("%Y-%m-%dT06:08:31Z")
+
+    url = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+    
+    body = {
+        "startsOnOrAfter": starts,
+        "endsOnOrBefore": ends,
+        "businessUnitIds": [request["MatchingUnits"]],
+        "jobTypeId": request["JobCode"],
+        "skillBasedAvailability": True,
+        "args": []
+    }
+
+    # Realizar la solicitud POST
+    response = requests.post(url, headers=headers, json=body)
+    
+    print(f"API response status: {response.status_code}")
+
+    if response.status_code == 200:
+        data = response.json()
+        available_slots = filter_availabilities(data.get("availabilities", []))
+        response = transform_availabilities(available_slots, request["MatchingUnits"][0])
+        return json.dumps(response, indent=4)  # Retorna la disponibilidad formateada
+    else:
+        print("Error en la solicitud:", response.status_code, response.text)
+        return json.dumps({"error": "Failed to fetch availability"}, indent=4)
 @app.get("/")
 def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
-
-""" @app.post("/create_customer")
-async def create_customer(customer: utils.CustomerCreateRequest):
-    try:
-        logger.info("Recibida solicitud para crear un cliente.")
-
-        # ✅ Convertir el objeto `customer` a diccionario
-        customer_data = customer.model_dump()
-        logger.info(f"Datos recibidos para el cliente: {customer_data}")
-
-        # ✅ `locations` ya es una lista, no hace falta procesar como objeto único
-        locations = customer_data.get("locations", [])
-
-        if not locations:
-            raise HTTPException(status_code=400, detail="Missing 'locations' data in request.")
-
-        # ✅ Obtener PRIMERA ubicación (ServiceTitan parece requerir una sola)
-        location_data = locations[0]
-
-        # ✅ Construir el payload correctamente
-        payload = {
-            "name": customer_data["name"],
-            "type": customer_data.get("type", "Residential"),
-            "locations": locations,  # ✅ Ya es una lista válida
-            "address": customer_data.get("address", {})  # ✅ Agregar address separado
-        }
-
-        # ✅ Hacer la petición a ServiceTitan para crear el cliente
-        url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-
-        response = requests.post(url, headers=headers, json=payload)
-        logger.info(f"Response de ServiceTitan: {response.status_code} - {response.text}")
-
-        if response.status_code == 200:
-            data = response.json()
-            return {
-                "message": "Customer created successfully.",
-                "customer_id": data.get("id"),
-                "location_id": data["locations"][0]["id"] if "locations" in data else None
-            }
-        else:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"ServiceTitan error: {response.text}"
-            )
-
-    except Exception as e:
-        logger.error(f"Error al procesar la solicitud: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
- """
 
 @app.post("/create-job/")
 async def create_job(job_request: utils.jobCreateToolRequest):
@@ -558,7 +547,96 @@ async def booking_request(data: utils.BookingRequest):
         print(f"Exception while processing booking request: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/reschedule_appointment")
+async def reschedule_appointment(data: utils.ReScheduleData): 
+    print("Processing re scheduling request...")
+    print(f"Request data: {data}")
+    access_token = await get_access_token()
+    
+    try:
+        print("Getting customer...")
+        url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?name={data.name}"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        response_customers = requests.get(url_customers, headers=headers)
 
+        if response_customers.status_code == 200:
+            customers_data_json = response_customers.json()
+            if "data" in customers_data_json and len(customers_data_json["data"]) > 0:
+                customer_id = customers_data_json["data"][0].get("id")
+            else:
+                return {"error": "No se encontró el id del cliente."}
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener cliente: {e}")
+        return {"error": "Error al realizar la solicitud externa."}
+    
+    try:
+        print("Getting appointment id ...")
+        print('Getting jobs ...')
+
+        url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        response_jobs = requests.get(url_jobs, headers=headers)
+
+        if response_jobs.status_code == 200:
+            jobs_data_json = response_jobs.json()
+            if jobs_data_json and "data" in jobs_data_json and len(jobs_data_json["data"]) > 0:
+                appointment_id = jobs_data_json["data"][0].get("lastAppointmentId")
+                print(f"APPOINTMENT ID: {appointment_id}")
+        else:
+            print("Error en la solicitud de trabajos")
+            return None
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error al obtener appointment id: {e}")
+        return {"error": "Error al realizar la solicitud externa."}
+
+    if not appointment_id:
+        return {"error": "No se encontró una agenda válida para el cliente."}
+    
+    try:
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments/{appointment_id}/reschedule"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+    
+        # Convertir a objeto datetime
+        start_time = datetime.fromisoformat(data.newSchedule)
+
+        # Agregar 3 horas a end
+        end_time = start_time + timedelta(hours=3)
+
+        # Convertir de nuevo a formato ISO
+        payload = {
+            "start": data.newSchedule,  # Mantiene el valor original
+            "end": end_time.isoformat()  # Ahora tiene 3 horas más
+    }
+        
+        # Realizar la solicitud PATCH
+        response = requests.patch(url, json=payload, headers=headers)
+        print(f"Respuesta de la API externa: {response.status_code}")
+            
+        # Devolver la respuesta de la API externa
+        if response.status_code == 200:
+            print(response.json())
+            return response.json()
+        else:
+            return {"error": f"Error en la solicitud: {response.status_code}", "details": response.text}
+    except requests.exceptions.RequestException as e:
+        return {"error": "Error al realizar la solicitud externa."}
+    
+# ANTES QUE GENERA LA RESERVA NUEVA CHECKEAR SI ESTA DISPONIBLE CON CHECK AVAILIBILITY
 @app.get("/get_time")
 async def get_current_utc_time():
     utc_now = datetime.now(pytz.utc)
