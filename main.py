@@ -35,9 +35,6 @@ possible_times = [
     "13:00"
 ]
 
-<<<<<<< HEAD
-print("funciono")
-=======
 app = FastAPI()
 
 # Datos harcodeados
@@ -126,7 +123,7 @@ def get_direction(origin, destination):
         return "SW"
     else:
         return "Unknown"
->>>>>>> origin/dev_tobias
+    
 
 async def get_access_token():
     try:
