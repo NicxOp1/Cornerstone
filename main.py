@@ -175,12 +175,17 @@ async def check_availability(request):
     if response_customer.status_code == 200:
         customer_info_json = response_customer.json()
 
-    if customer_info_json["data"][0]["name"] == request.name:
-        request.isCustomer = True
-        print("Is Customer")
+    # Verificar si 'data' tiene elementos
+    if "data" in customer_info_json and len(customer_info_json["data"]) > 0:
+        if customer_info_json["data"][0]["name"] == request.name:
+            request.isCustomer = True
+            print("Is Customer")
+        else:
+            request.isCustomer = False
+            print("Not Customer")
     else:
         request.isCustomer = False
-        print("Not Customer")
+        print("No customer found")
 
 
     print("Checking availability...")

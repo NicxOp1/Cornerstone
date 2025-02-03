@@ -18,7 +18,8 @@ class Address(BaseModel):
     city: Optional[str] = Field(..., description="City of the customer")
     zip: Optional[str] = Field(..., description="Zip code of the customer")
     country: Optional[str] = Field(..., description="Country name")
-
+    state: Optional[str] = Field(None, description="State name")  # 👈 Agregado
+    
     model_config = ConfigDict(
         extra='allow',
     )
