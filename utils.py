@@ -18,7 +18,6 @@ class Address(BaseModel):
     city: Optional[str] = Field(..., description="City of the customer")
     zip: Optional[str] = Field(..., description="Zip code of the customer")
     country: Optional[str] = Field(..., description="Country name")
-    state: Optional[str] = Field(None, description="State name")  # 👈 Agregado
     
     model_config = ConfigDict(
         extra='allow',
@@ -67,6 +66,10 @@ class BookingRequest(BaseModel):
     locations: Location = Field(description="Details about the location")
     isCustomer: bool = Field(..., description="If the user is a customer")
 
+    model_config = ConfigDict(
+        extra='allow',
+    )
+
 
 class TechnicianAvailabilityRequest(BaseModel):
     startsOnOrAfter: str = Field(..., description="Start time for checking technician availability")
@@ -86,3 +89,8 @@ class ScheduleData(BaseModel):
 class ReScheduleData(BaseModel):
     newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
     name: str = Field(..., description="Name of the customer")
+
+class cancelJobAppointment(BaseModel):
+    name: str = Field(..., description="Name of the customer")
+    reasonId: int = Field(... , description="Id of the reason to cancel")
+    memo: str = Field(description="Memo")

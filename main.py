@@ -390,8 +390,12 @@ async def check_technician_availability(request, time):
 
     if response.status_code == 200:
         data = response.json()
+        print("Disponibilidad obtenida:", data)
         available_slots = filter_availabilities(data.get("availabilities", []))
+        print("Disponibilidad obtenida:", response)
+
         response = transform_availabilities(available_slots, request["MatchingUnits"][0])
+        print("MU :", request["MatchingUnits"][0])
         return json.dumps(response, indent=4)  # Retorna la disponibilidad formateada
     else:
         print("Error en la solicitud:", response.status_code, response.text)
@@ -653,8 +657,81 @@ async def reschedule_appointment(data: utils.ReScheduleData):
             return {"error": f"Error en la solicitud: {response.status_code}", "details": response.text}
     except requests.exceptions.RequestException as e:
         return {"error": "Error al realizar la solicitud externa."}
-    
-# ANTES QUE GENERA LA RESERVA NUEVA CHECKEAR SI ESTA DISPONIBLE CON CHECK AVAILIBILITY
+
+@app.post("/cancel_appointment")
+async def cancel_appointment(data: utils.cancelJobAppointment):
+    try:
+        print("Getting customer...")
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        # Obtener el customer_id
+        url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?name={data.name}"
+        response_customers = requests.get(url_customers, headers=headers)
+
+        if response_customers.status_code != 200:
+            return {"error": "Error al obtener el cliente.", "details": response_customers.text}
+
+        customers_data_json = response_customers.json()
+        if not customers_data_json.get("data"):
+            return {"error": "No se encontró el ID del cliente."}
+
+        customer_id = customers_data_json["data"][0].get("id")
+        print(f"CUSTOMER ID: {customer_id}")
+
+        # Obtener el jobId correspondiente al customer_id
+        print("Getting job id ...")
+        url_bookings = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/export/bookings"
+        response_bookings = requests.get(url_bookings, headers=headers)
+
+        if response_bookings.status_code != 200:
+            return {"error": "Error al obtener las reservas.", "details": response_bookings.text}
+
+        bookings_data_json = response_bookings.json()
+        job_id = None
+
+        for entry in bookings_data_json.get("data", []):
+            if entry.get("name") == data.name:
+                job_id = entry.get("jobId")
+                break
+
+        if not job_id:
+            return {"error": "No se encontró un Job ID para el cliente."}
+
+        print(f"JOB ID: {job_id}")
+
+        # Cancelar la cita
+        print("Processing cancel appointment request...")
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
+        print(f"Request URL: {url}")
+
+        payload = {
+            "reasonId": data.reasonId,
+            "memo": data.memo
+        }
+
+        response = requests.put(url, headers=headers, json=payload)
+        print(f"Response of the API external: {response.status_code}")
+
+        # Manejo de errores específicos
+        if response.status_code == 404:
+            return {"error": "Job ID not found.", "details": response.json()}
+
+        if response.status_code == 200:
+            if not response.text.strip():  # Si la respuesta está vacía
+                return {"message": "Job appointment canceled successfully."}
+            return response.json()
+
+        return {"error": f"Error in request: {response.status_code}", "details": response.text}
+
+    except Exception as e:
+        print(f"Exception while processing cancel job appointment: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/get_time")
 async def get_current_utc_time():
     utc_now = datetime.now(pytz.utc)
