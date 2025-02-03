@@ -258,6 +258,7 @@ async def check_availability(request):
 
     # Distancia en millas
     distance = round(R * c, 2)
+    print(f"Distance: {distance} miles")
 
     if distance > 50:
         return {"error": "No hay disponibilidad de servicios en la zona."}
@@ -545,7 +546,19 @@ async def booking_request(data: utils.BookingRequest):
         print(f"JOB INFO: {job_info}")
 
         tech_info = await check_technician_availability(job_info, data.time)
+
+        # Si tech_info es un string y parece una lista vacía, lo convertimos a lista real
+        if isinstance(tech_info, str):
+            try:
+                tech_info = json.loads(tech_info)  # Convierte el string a una lista si es posible
+            except json.JSONDecodeError:
+                return "Error: Unexpected response format."
+            
         print(f"TECHNICIAN INFO: {tech_info}")
+
+        if isinstance(tech_info, list) and len(tech_info) == 0:
+            return "There are no technicians available."
+
         return tech_info
     
     except Exception as e:
