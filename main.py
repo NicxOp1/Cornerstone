@@ -538,6 +538,8 @@ async def create_job(job_request: utils.jobCreateToolRequest):
 @app.post("/checkAvilability")
 async def booking_request(data: utils.BookingRequest):
 
+    print(f"Job data: {data}")
+
     try:
         print("Processing booking request...")
         print(f"Request data: {data}")
