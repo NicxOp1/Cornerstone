@@ -536,11 +536,13 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         raise HTTPException(status_code=500, detail=f"An error occurred: {err}")
 
 @app.post("/checkAvilability")
-async def booking_request(data: utils.BookingRequest):
+async def booking_request(response):
 
-    print(f"Job data: {data}")
+    print(f"Job data: {response}")
 
-    try:
+    return response
+
+    """ try:
         print("Processing booking request...")
         print(f"Request data: {data}")
 
@@ -569,7 +571,7 @@ async def booking_request(data: utils.BookingRequest):
     
     except Exception as e:
         print(f"Exception while processing booking request: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) """
 
 @app.post("/reschedule_appointment")
 async def reschedule_appointment(data: utils.ReScheduleData): 
