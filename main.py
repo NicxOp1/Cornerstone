@@ -536,42 +536,48 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         raise HTTPException(status_code=500, detail=f"An error occurred: {err}")
 
 @app.post("/checkAvilability")
-async def booking_request(response):
+async def booking_request(data: list[utils.BookingRequest]):  # ✅ data es una lista de BookingRequest
+    try:
+        if not isinstance(data, list) or len(data) == 0:
+            raise HTTPException(status_code=400, detail="Request must be a non-empty list.")
 
-    print(f"Job data: {response}")
+        responses = []
+        for booking in data:  # ✅ Iteramos sobre cada BookingRequest en la lista
+            print("Processing booking request...")
+            print(f"Request data: {booking.args}")
 
-    return response
+            job_info = await check_availability(booking.args)
+            if "error" in job_info:
+                print(job_info["error"])
+                responses.append({"error": job_info["error"]})
+                continue
 
-    """ try:
-        print("Processing booking request...")
-        print(f"Request data: {data}")
+            print(f"JOB INFO: {job_info}")
 
-        job_info = await check_availability(data)
-        if "error" in job_info:
-            print(job_info["error"])
-            return job_info
-    
-        print(f"JOB INFO: {job_info}")
+            tech_info = await check_technician_availability(job_info, booking.args.time)
 
-        tech_info = await check_technician_availability(job_info, data.time)
+            # Si `tech_info` es un string y parece una lista vacía, convertirlo a lista real
+            if isinstance(tech_info, str):
+                try:
+                    tech_info = json.loads(tech_info)
+                except json.JSONDecodeError:
+                    responses.append({"error": "Error: Unexpected response format."})
+                    continue
 
-        # Si tech_info es un string y parece una lista vacía, lo convertimos a lista real
-        if isinstance(tech_info, str):
-            try:
-                tech_info = json.loads(tech_info)  # Convierte el string a una lista si es posible
-            except json.JSONDecodeError:
-                return "Error: Unexpected response format."
-            
-        print(f"TECHNICIAN INFO: {tech_info}")
+            print(f"TECHNICIAN INFO: {tech_info}")
 
-        if isinstance(tech_info, list) and len(tech_info) == 0:
-            return "There are no technicians available."
+            if isinstance(tech_info, list) and len(tech_info) == 0:
+                responses.append({"message": "There are no technicians available."})
+                continue
 
-        return tech_info
-    
+            responses.append(tech_info)
+
+        return responses  # ✅ Retorna una lista con todas las respuestas procesadas
+
     except Exception as e:
         print(f"Exception while processing booking request: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) """
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/reschedule_appointment")
 async def reschedule_appointment(data: utils.ReScheduleData): 
