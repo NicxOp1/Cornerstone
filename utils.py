@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 
 
 # Log function to display responses in a readable format
@@ -57,7 +57,14 @@ class ToolRequest(BaseModel):
 class jobCreateToolRequest(ToolRequest):
     args: JobCreateRequest
 
-class BookingRequest(BaseModel):
+class CallInfo(BaseModel):
+    call_id: str
+    retell_llm_dynamic_variables: List[Any]
+    latency: Dict[str, Any]
+    opt_out_sensitive_data_storage: bool
+    call_type: str
+
+class RequestArgs(BaseModel):
     name: str = Field(..., description="Name of the customer")
     address: str = Field(description="Full address of the customer, e.g., '123 Main St, City, Zip'")
     locName: str = Field(description="Location name where the job will be performed")
@@ -66,9 +73,14 @@ class BookingRequest(BaseModel):
     locations: Location = Field(description="Details about the location")
     isCustomer: bool = Field(..., description="If the user is a customer")
 
-    model_config = ConfigDict(
-        extra='allow',
-    )
+class BookingRequest(BaseModel):
+    call: CallInfo
+    name: str = "check_availability"
+    args: RequestArgs
+
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
 
 
 class TechnicianAvailabilityRequest(BaseModel):
@@ -94,3 +106,4 @@ class cancelJobAppointment(BaseModel):
     name: str = Field(..., description="Name of the customer")
     reasonId: int = Field(... , description="Id of the reason to cancel")
     memo: str = Field(description="Memo")
+
