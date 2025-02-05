@@ -9,7 +9,6 @@ import os
 import json
 import pytz
 from pydantic import BaseModel
-import pandas as pd
 import math
 
 logging.basicConfig(level=logging.INFO)
@@ -37,108 +36,7 @@ possible_times = [
 
 app = FastAPI()
 
-# Datos harcodeados
-
-jobs_data = {
-    "Job Type": [
-        "Outlet Install", "AC Maintanence", "Boiler Install", "Duct Cleaning", "Plumbing Service",
-        "HVAC Install", "HVAC Troubleshoot", "Furnace Install", "MiniSplit Install", "Water Treatment",
-        "Cleaning Sales Opportunity", "Cleaning Services",
-        "Drain Cleaning", "Dryer Vent Cleaning", "Electrical Troubleshoot", "Fixture Install",
-        "Handyman Services", "Heating System Maintenance",
-        "LED Retrofit", "No Heat", "No Hot Water", "Panel Upgrade", "Water Treatment Quote"
-    ],
-    "Job Code": [
-        42076309, 48838652, 7182465, 7522441, 5879699,
-        48841042, 41950467, 4931845, 39203718, 46387202,
-        3676033, 3576199,
-        48339970, 29707780, 4356, 396,
-        3719556, 48837239,
-        2199172, 39164700, 39164743, 397, 48988302
-    ],
-    "Business Units": [
-        "MA - Electrical, NH - Electrical", "HVAC Repair/Service", "HVAC Install", "NE - Cleaning Services", "NE - Plumbing",
-        "HVAC Install", "HVAC Repair/Service", "HVAC Install", "HVAC Install", "NE - Plumbing",
-        "NE - Cleaning Services", "NE - Cleaning Services",
-        "NE - Plumbing", "NE - Cleaning Services", "MA - Electrical, NH - Electrical", "NE - Handyman Services",
-        "NE - Handyman Services", "HVAC Repair/Service",
-        "MA - Electrical, NH - Electrical", "HVAC Repair/Service", "HVAC Repair/Service", "MA - Electrical, NH - Electrical",
-        "NE - Plumbing"
-    ]
-}
-jobs_df = pd.DataFrame(jobs_data)
-
-services_by_zone = {
-    "Location": [
-        "Methuen, MA", "Andover, MA", "North Andover, MA", "Amesbury, MA", "Pelham, MA",
-        "Plaistow, MA", "Haverhill, MA", "Newburyport, MA", "Derry, NH", "Londonderry, NH",
-        "Hudson, NH", "Windham, NH", "Salem, NH", "Atkinson, NH", "Arlington, MA",
-        "Manchester, NH", "Acton, MA", "Concord, NH"
-    ],
-    "Available Services": [
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps", "Plumbing"],
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps", "Plumbing"],
-        ["AC Repair", "AC Installation", "Furnace Repair", "Deep Cleaning", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["AC Repair", "AC Installation", "Electrician", "Handyman Services", "Heat Pumps"],
-        ["HVAC Repair", "Plumbing Repair", "Electrical Services", "Home Modifications for Seniors", "Other Services"],
-        ["HVAC Repair", "Plumbing Repair", "Electrical Services", "Home Modifications for Seniors", "Other Services"],
-        ["HVAC Repair", "Plumbing Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
-        ["HVAC Repair", "Plumbing Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
-        ["Plumbing Services", "HVAC Repair", "Electrician", "Home Modifications for Seniors", "Other Services"],
-        ["Electrician"],
-        ["Electrician"],
-        ["Electrician"],
-        ["Electrician"]
-    ]
-}
-services_df = pd.DataFrame(services_by_zone)
-
-# Funciones auxiliares
-
-def get_job_info(job_id):
-    # Buscar el índice del Job Code que coincida con el job_id
-    if job_id in jobs_data["Job Code"]:
-        index = jobs_data["Job Code"].index(job_id)
-        
-        # Crear un diccionario con la información solicitada
-        job_info = {
-            "Job Type": jobs_data["Job Type"][index],
-            "Job Code": jobs_data["Job Code"][index],
-            "Business Units": jobs_data["Business Units"][index]
-        }
-
-        return job_info
-    else:
-        return "Other"
-
-def get_distance_category(distance):
-    if 0 <= distance <= 25:
-        return "0-25 miles"
-    elif 25 < distance <= 50:
-        return "25-50 miles"
-    else:
-        return "Out of range"
-
-def get_direction(origin, destination):
-    lat1, lon1 = origin
-    lat2, lon2 = destination
-    
-    if lat2 > lat1 and lon2 > lon1:
-        return "NE"
-    elif lat2 > lat1 and lon2 < lon1:
-        return "NW"
-    elif lat2 < lat1 and lon2 > lon1:
-        return "SE"
-    elif lat2 < lat1 and lon2 < lon1:
-        return "SW"
-    else:
-        return "Unknown"
-
+# Auxiliary functions
 async def get_access_token():
     try:
         print("Fetching access token...")
@@ -150,7 +48,7 @@ async def get_access_token():
 #        print(f"Token response status: {response.status_code}")
         if response.status_code == 200:
             token_data = response.json()
-            print("Access token fetched successfully.")
+            print("Access token fetched successfully. ✅")
             return token_data.get("access_token")
         else:
             print(f"Error fetching token: {response.text}")
@@ -162,119 +60,144 @@ async def get_access_token():
 async def check_availability(request):
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
-    print("Checking if is customer...")
-    url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
-    response_customer = requests.get(url_customer, headers=headers)
-    print(f"Customer response status: {response_customer.status_code}")
-    if response_customer.status_code == 200:
-        customer_info_json = response_customer.json()
-
-    # Verificar si 'data' tiene elementos
-    if "data" in customer_info_json and len(customer_info_json["data"]) > 0:
-        if customer_info_json["data"][0]["name"] == request.name:
-            request.isCustomer = True
-            print("Is Customer")
-        else:
-            request.isCustomer = False
-            print("Not Customer")
-    else:
-        request.isCustomer = False
-        print("No customer found")
-
-
     print("Checking availability...")
-    # Comprobar si hay disponibilidad laboral
-    print(request.jobType)
-    job_info = get_job_info(request.jobType)
-    print(job_info)
-    if job_info is None:
-        print("No job found")
-        return False
 
-    url = f"https://api.servicetitan.io/settings/v2/tenant/{TENANT_ID}/business-units"
-    response = requests.get(url, headers=headers)
-    print(f"Business units response status: {response.status_code}")
-    if response.status_code == 200:
-        business_units_json = response.json()
-        business_units = {unit["name"].strip().lower(): unit["id"] for unit in business_units_json["data"]}
-
-        job_units = job_info["Business Units"].split(",")
-
-        job_units = [unit.strip().lower() for unit in job_units]
-
-        matching_units = [business_units[unit] for unit in job_units if unit in business_units]
-
-    if request.isCustomer == False:
-        # Acceso a los atributos del objeto request usando la notación de punto
-        address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
-        
-        if not address:
-            return {"error": "La dirección no es válida."}
-        
-        # URL de la API geocode.xyz con la autenticación
-        url = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-
-        # Hacer la solicitud GET
-        resp = requests.get(url)
-            
-        # Comprobar si la respuesta es exitosa (200 OK)
-        if resp.status_code == 200:
-                json_data = resp.json()
-        
-        # Extraer latitud y longitud
-        lat = json_data.get("latt")
-        lon = json_data.get("longt")
-    elif request.isCustomer == True:
-        lat, lon = customer_info_json["data"][0]["address"]["latitude"], customer_info_json["data"][0]["address"]["longitude"]
-
+    print("Checking if is customer...")
     try:
-        lat = float(lat)
-        lon = float(lon)
+        url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        response_customer = requests.get(url_customer, headers=headers)
+        print(f"Customer response status: {response_customer.status_code}")
+        if response_customer.status_code == 200:
+            customer_info_json = response_customer.json()
+
+        # Verify "data" contains elements
+        if "data" in customer_info_json and len(customer_info_json["data"]) > 0:
+            if customer_info_json["data"][0]["name"] == request.name:
+                request.isCustomer = True
+                print("Is Customer")
+            else:
+                request.isCustomer = False
+                print("Not Customer")
+        print("Customer Checked ✅")
     except ValueError:
-        return {"error": "Las coordenadas proporcionadas no son válidas."}
+        return {"error": "Cheking customer failed."}
 
-    print(lat, lon)
 
-    if lat is None or lon is None:
-        return {"error": "No se pudieron obtener las coordenadas de la dirección."}
+    print("Checking coordinates...")
+    try:
+        if request.isCustomer == True:
+            lat, lon = customer_info_json["data"][0]["address"]["latitude"], customer_info_json["data"][0]["address"]["longitude"]
+            print(lat, lon)
+            
+        if lat is None or lon is None:
+            address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
+            
+            if not address:
+                return {"error": "The direction is not valid."}
+            
+            url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+            resp = requests.get(url_geocode)
+
+            if resp.status_code == 200:
+                    json_data = resp.json()
+            
+            lat = json_data.get("latt")
+            lon = json_data.get("longt")
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            return {"error": "The proporcioned coordinates are no valid."}
+
+        print(lat, lon)
+
+        if lat is None or lon is None:
+            return {"error": "Could not get address coordinates."}
+        
+        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+        lat2, lon2 = math.radians(lat), math.radians(lon)
+
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
+
+        #Haversine
+        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = round(R * c, 2)
+        print(f"Distance: {distance} miles")
+
+        if distance > 50:
+            return {"error": "There are no services available in the area."}
+        
+        print("Coordinates Checked ✅")
+    except ValueError:
+        return {"error": "Checking coordinates failed."}
+
+
+    print("Checking business unit...")
+    try:
+        url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
+        response_jobTypes = requests.get(url_jobTypes, headers=headers)
+
+        print(f"Job types response status: {response_jobTypes.status_code}")
+        if response_jobTypes.status_code == 200:
+            job_types_json = response_jobTypes.json()
+            job_types = {job_type["id"]: job_type["businessUnitIds"] for job_type in job_types_json["data"]}
+
+        business_units = job_types.get(request.jobType, None)
+
+        if business_units:
+            print(f"Business Units for Job Type {request.jobType}: {business_units}")
+        else:
+            print(f"Job Type {request.jobType} not found in response.")
+        
+        print("Business Unit Checked ✅")
+    except ValueError:
+        return {"error": "Checking business unit failed."}
     
-    # Convertir las coordenadas a radianes
-    lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
-    lat2, lon2 = math.radians(lat), math.radians(lon)
+    print("Checking availability time...")
+    try:
+        start_time = datetime.fromisoformat(request.time.replace("Z", "+00:00"))
+        end_time = start_time + timedelta(days=7)
+        
+        print(f"Start time: {request.time}, End time: {end_time}")
 
-    # Diferencia entre las coordenadas
-    delta_lat = lat2 - lat1
-    delta_lon = lon2 - lon1
+        url_capacity = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
+        payload = {
+            "startsOnOrAfter": request.time,
+            "endsOnOrBefore": end_time.isoformat().replace("+00:00", "Z"),
+            "businessUnitIds": business_units,
+            "jobTypeId": request.jobType,
+            "skillBasedAvailability": True
+        }
 
-    # Fórmula de Haversine
-    a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        response_capacity = requests.get(url_capacity, headers=headers, json=payload)
 
-    # Distancia en millas
-    distance = round(R * c, 2)
-    print(f"Distance: {distance} miles")
+        if response_capacity.status_code == 200:
+            response_capacity_json = response_capacity.json()
 
-    if distance > 50:
-        return {"error": "No hay disponibilidad de servicios en la zona."}
+            available_slots = [
+                {"start": slot["start"], "end": slot["end"]}
+                for slot in response_capacity_json.get("availabilities", []) if slot.get("isAvailable")
+            ]
+
+            print("Available slots:", available_slots)
+        else:
+            print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
+        
+        print("Availability Time Checked ✅")
+    except ValueError:
+        print({"error": "Checking availability time failed."})
     
-    # Obtener los servicios disponibles en la zona
-    # distance_category = get_distance_category(distance)
-
-    # Obtener los servicios disponibles en la dirección
-    # direction = get_direction(PO_BOX_SALEM, (lat, lon))
-
-    result = {
-        "JobCode": job_info["Job Code"],
-        "MatchingUnits": matching_units
-    }
-
-    return result
+    return available_slots
 
 async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
@@ -445,6 +368,7 @@ async def check_technician_availability_schedule(request, time):
     else:
         print("Error en la solicitud:", response.status_code, response.text)
         return json.dumps({"error": "Failed to fetch availability"}, indent=4)
+
 @app.get("/")
 def read_root():
     print("Root endpoint accessed.")
@@ -535,38 +459,152 @@ async def create_job(job_request: utils.jobCreateToolRequest):
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"An error occurred: {err}")
 
-@app.post("/checkAvilability")
-async def booking_request(data: utils.BookingRequest):
+@app.post("/checkAvailability")
+async def check_availability(data: utils.BookingRequest):
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+    request = data.args
+    print("Checking availability...")
+
+    print("Checking if is customer...")
     try:
-        print("Processing booking request...")
-        print(f"Request data: {data.args}")
+        url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        response_customer = requests.get(url_customer, headers=headers)
+        print(f"Customer response status: {response_customer.status_code}")
+        if response_customer.status_code == 200:
+            customer_info_json = response_customer.json()
 
-        job_info = await check_availability(data.args)
-        if "error" in job_info:
-            print(job_info["error"])
-            return job_info
+        # Verify "data" contains elements
+        if "data" in customer_info_json and len(customer_info_json["data"]) > 0:
+            if customer_info_json["data"][0]["name"] == request.name:
+                request.isCustomer = True
+                print("Is Customer")
+            else:
+                request.isCustomer = False
+                print("Not Customer")
+        print("Customer Checked ✅")
+    except ValueError:
+        return {"error": "Cheking customer failed."}
 
-        print(f"JOB INFO: {job_info}")
 
-        tech_info = await check_technician_availability(job_info, data.args.time)
+    print("Checking coordinates...")
+    try:
+        lat, lon = None, None
 
-        # Si `tech_info` es un string y parece una lista vacía, convertirlo a lista real
-        if isinstance(tech_info, str):
-            try:
-                tech_info = json.loads(tech_info)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=500, detail="Error: Unexpected response format.")
+        if request.isCustomer == True:
+            lat, lon = customer_info_json["data"][0]["address"]["latitude"], customer_info_json["data"][0]["address"]["longitude"]
+            print(lat, lon)
+            
+        if lat is None or lon is None:
+            address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
+            
+            if not address:
+                return {"error": "The direction is not valid."}
+            
+            url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+            resp = requests.get(url_geocode)
 
-        print(f"TECHNICIAN INFO: {tech_info}")
+            if resp.status_code == 200:
+                    json_data = resp.json()
+            
+            lat = json_data.get("latt")
+            lon = json_data.get("longt")
 
-        if isinstance(tech_info, list) and len(tech_info) == 0:
-            return {"message": "There are no technicians available."}
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            return {"error": "The proporcioned coordinates are no valid."}
 
-        return tech_info
+        print(lat, lon)
 
-    except Exception as e:
-        print(f"Exception while processing booking request: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        if lat is None or lon is None:
+            return {"error": "Could not get address coordinates."}
+        
+        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+        lat2, lon2 = math.radians(lat), math.radians(lon)
+
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
+
+        #Haversine
+        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = round(R * c, 2)
+        print(f"Distance: {distance} miles")
+
+        if distance > 50:
+            return {"error": "There are no services available in the area."}
+        
+        print("Coordinates Checked ✅")
+    except ValueError:
+        return {"error": "Checking coordinates failed."}
+
+
+    print("Checking business unit...")
+    try:
+        url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
+        response_jobTypes = requests.get(url_jobTypes, headers=headers)
+
+        print(f"Job types response status: {response_jobTypes.status_code}")
+        if response_jobTypes.status_code == 200:
+            job_types_json = response_jobTypes.json()
+            job_types = {job_type["id"]: job_type["businessUnitIds"] for job_type in job_types_json["data"]}
+
+        business_units = job_types.get(request.jobType, None)
+
+        if business_units:
+            print(f"Business Units for Job Type {request.jobType}: {business_units}")
+        else:
+            print(f"Job Type {request.jobType} not found in response.")
+        
+        print("Business Unit Checked ✅")
+    except ValueError:
+        return {"error": "Checking business unit failed."}
+    
+    print("Checking availability time...")
+    try:
+        start_time = datetime.fromisoformat(request.time.replace("Z", "+00:00"))
+        end_time = start_time + timedelta(days=7)
+        end_time_str = end_time.isoformat().replace("+00:00", "Z")
+        
+        print(f"Start time: {request.time}, End time: {end_time_str}")
+
+        url_capacity = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
+        payload = {
+            "startsOnOrAfter": request.time,
+            "endsOnOrBefore": end_time_str,
+            "businessUnitIds": business_units,
+            "jobTypeId": request.jobType,
+            "skillBasedAvailability": True
+        }
+
+        response_capacity = requests.post(url_capacity, headers=headers, json=payload)
+
+        if response_capacity.status_code == 200:
+            response_capacity_json = response_capacity.json()
+
+            available_slots = [
+                {"start": slot["start"], "end": slot["end"]}
+                for slot in response_capacity_json.get("availabilities", []) if slot.get("isAvailable")
+            ]
+
+            print("Available slots:", available_slots)
+        else:
+            print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
+        
+    except ValueError:
+        print({"error": "Checking availability time failed."})
+    
+    print("Availability Time Checked ✅")
+    return available_slots
 
 @app.post("/reschedule_appointment")
 async def reschedule_appointment(data: utils.ReScheduleData): 
@@ -731,7 +769,7 @@ async def cancel_appointment(data: utils.cancelJobAppointment):
         print(f"Exception while processing cancel job appointment: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/get_time")
+@app.post("/get_time")
 async def get_current_utc_time():
     utc_now = datetime.now(pytz.utc)
     return utc_now.strftime("%Y-%m-%dT%H:%M:%SZ")
