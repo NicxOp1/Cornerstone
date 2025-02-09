@@ -301,7 +301,12 @@ async def check_availability(data: utils.BookingRequest):
     
     available_slots = await check_availability_time(request.time, business_units, request.jobType)
 
+    if not available_slots:
+        print("No available slots found.")
+        return {"message": "No available slots found."}
+
     return available_slots
+
 
 @app.post("/createJob")
 async def create_job(job_request: utils.jobCreateToolRequest):
