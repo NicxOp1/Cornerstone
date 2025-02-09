@@ -230,8 +230,16 @@ async def check_availability(data: utils.BookingRequest):
         lat, lon = None, None
 
         if request.isCustomer == True:
-            lat, lon = customer_info_json["data"][0]["address"]["latitude"], customer_info_json["data"][0]["address"]["longitude"]
-            print(lat, lon)
+            if "data" in customer_info_json and customer_info_json["data"]:
+                first_data = customer_info_json["data"][0]
+
+                if "address" in first_data and "latitude" in first_data["address"] and "longitude" in first_data["address"]:
+                    lat, lon = first_data["address"]["latitude"], first_data["address"]["longitude"]
+                    print(lat, lon)
+                else:
+                    print("Error: La dirección del cliente no tiene latitud o longitud.")
+            else:
+                print("Error: No se encontraron datos de cliente.")
             
         if lat is None or lon is None:
             address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
