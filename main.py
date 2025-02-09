@@ -299,11 +299,18 @@ async def check_availability(data: utils.BookingRequest):
     except ValueError:
         return {"error": "Checking business unit failed."}
     
-    available_slots = await check_availability_time(request.time, business_units, request.jobType)
+    available_slots = []
 
-    if not available_slots:
-        print("No available slots found.")
-        return {"message": "No available slots found."}
+    try:
+        available_slots = await check_availability_time(request.time, business_units, request.jobType)
+
+        if not available_slots:
+            print("No available slots found.")
+        if not available_slots:
+            print("No available slots found.")
+    except Exception as e:
+        print(f"Error checking availability: {e}")
+
 
     return available_slots
 
