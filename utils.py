@@ -27,29 +27,20 @@ class Address(BaseModel):
 class Location(BaseModel):
     name: str = Field(..., description="Location name")
     address: Address = Field(..., description="Address of the location")
-    
-class CallInfo(BaseModel):
-    call_id: str
-    retell_llm_dynamic_variables: List[Any]
-    latency: Dict[str, Any]
-    opt_out_sensitive_data_storage: bool
-    call_type: str
 
 class RequestArgs(BaseModel):
+    isCustomer: bool = Field(..., description="If the user is a customer")
     name: str = Field(..., description="Name of the customer")
     address: str = Field(description="Full address of the customer, e.g., '123 Main St, City, Zip'")
     locName: str = Field(description="Location name where the job will be performed")
     time: str = Field(..., description="Requested time for the job in ISO 8601 format")
     jobType: int = Field(..., description="ID of the job type")
     locations: Location = Field(description="Details about the location")
-    isCustomer: bool = Field(..., description="If the user is a customer")
-    execution_message: str = Field(..., description="description of the execution")
     number: int = Field(..., description="phone number of the customer")
     email: str = Field(..., description="email address of the customer")
+    execution_message: str = Field(..., description="description of the execution")
 
 class BookingRequest(BaseModel):
-    call: CallInfo
-    name: str = "check_availability"
     args: RequestArgs
 
     model_config = {
