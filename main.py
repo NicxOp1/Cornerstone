@@ -192,10 +192,10 @@ def read_root():
     return {"status": "Service is up"}
 
 @app.post("/checkAvailability")
-async def check_availability(data: utils.RequestArgs):
+async def check_availability(data: utils.BookingRequest):
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
-    request = data
+    request = data.args
     print("Checking availability...")
 
     print("Checking if is customer...")
