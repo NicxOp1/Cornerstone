@@ -549,10 +549,33 @@ async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
         print(f"Exception while processing cancel job appointment: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+from datetime import datetime, timezone, timedelta
+from fastapi import FastAPI
+
+app = FastAPI()
+
 @app.post("/getTime")
-async def get_current_utc_time():
-    utc_now = datetime.now(pytz.utc)
-    return utc_now.strftime("%Y-%m-%dT%H:%M:%SZ")
+async def get_current_boston_time():
+    print("Getting current time...")
+    utc_now = datetime.now(timezone.utc)
+
+    # Hora de Boston (Eastern Time - EST/EDT)
+    boston_offset = timedelta(hours=-5)  # UTC-5 (EST) por defecto
+    boston_time = utc_now + boston_offset
+
+    # Verificar si es horario de verano (DST)
+    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)  # Segundo domingo de marzo
+    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)  # Primer domingo de noviembre
+
+    if start_dst <= utc_now < end_dst:
+        boston_time += timedelta(hours=1)  # UTC-4 en horario de verano (EDT)
+
+    print(f"Current UTC time: {utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    print(f"Current Boston time: {boston_time.strftime('%Y-%m-%dT%H:%M:%S')}")
+    print("Getting current time successfully ✅")
+
+    return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
+
 
 
 
