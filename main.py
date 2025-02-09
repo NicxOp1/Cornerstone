@@ -549,11 +549,6 @@ async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
         print(f"Exception while processing cancel job appointment: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI
-
-app = FastAPI()
-
 @app.post("/getTime")
 async def get_current_boston_time():
     print("Getting current time...")
@@ -575,7 +570,6 @@ async def get_current_boston_time():
     print("Getting current time successfully ✅")
 
     return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
-
 
 
 
