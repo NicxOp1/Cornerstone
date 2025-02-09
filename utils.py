@@ -43,7 +43,6 @@ class RequestArgs(BaseModel):
     jobType: int = Field(..., description="ID of the job type")
     locations: Location = Field(description="Details about the location")
     isCustomer: bool = Field(..., description="If the user is a customer")
-    execution_message: str = Field(..., description="description of the execution")
     number: int = Field(..., description="phone number of the customer")
     email: str = Field(..., description="email address of the customer")
 
