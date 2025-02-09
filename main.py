@@ -77,7 +77,7 @@ async def get_customer(name):
         print(f"Error getting client: {e}")
         return {"error": "Error when making external request."}
 
-async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, str]:         # PREGUNTAR SI DEBE SOBRE ESCRIBIR EL CODIGO : COUNTRY Y STATE
+async def create_customer(customer: utils.CustomerCreateRequest):
     print("Creating customer ...")
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
 
@@ -91,24 +91,39 @@ async def create_customer(customer: utils.CustomerCreateRequest) -> Tuple[str, s
     try:
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
-    
+
         if hasattr(location, 'address') and location.address:
             if not getattr(location.address, 'country', None):
                 location.address.country = "USA"
-            
             if not getattr(location.address, 'state', None):
                 location.address.state = "SC"
 
-
-        payload = customer.model_dump(by_alias=True)
-
-        # Evita listas anidadas
-        if not isinstance(payload["locations"], list):
-            payload["locations"] = [payload["locations"]]
-
-        payload["address"] = customer.locations[0].address.model_dump()
+        payload = {
+            "name": customer.name,
+            "type": customer.type,
+            "locations": [
+                {
+                    "name": location.name,
+                    "address": {
+                        "street": location.address.street or "",
+                        "city": location.address.city or "",
+                        "zip": location.address.zip or "",
+                        "country": location.address.country or "USA",
+                        "state": location.address.state or "SC",
+                    },
+                }
+            ],
+            "address": {
+                "street": (customer.address.street if customer.address else location.address.street) or "",
+                "city": (customer.address.city if customer.address else location.address.city) or "",
+                "zip": (customer.address.zip if customer.address else location.address.zip) or "",
+                "country": (customer.address.country if customer.address else location.address.country) or "USA",
+                "state": (customer.address.state if customer.address else location.address.state) or "SC",
+            },
+        }
 
         response = requests.post(url, headers=headers, json=payload)
+        
         if response.status_code == 200:
             print("Created customer successfully ✅")
             data = response.json()

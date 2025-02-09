@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException
 from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Any, Dict
-
+from pydantic.config import ConfigDict
 
 # Log function to display responses in a readable format
 def log_response(context: str, data: Any):
