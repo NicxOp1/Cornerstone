@@ -320,7 +320,10 @@ async def check_availability(data: utils.BookingRequest):
         print(f"Error checking availability: {e}")
 
 
-    return available_slots
+    return {
+        'businessUnitId': business_units[0],
+        'available_slots': available_slots
+    }
 
 
 @app.post("/createJob")
