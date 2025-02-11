@@ -2,7 +2,7 @@ from datetime import datetime, date, timedelta, time, timezone
 from typing import Tuple, Dict
 from fastapi import FastAPI, Request, Response, HTTPException
 import requests
-import utils as utils
+import utilss as utilss
 import logging
 from dotenv import load_dotenv
 import os
@@ -77,7 +77,7 @@ async def get_customer(name):
         print(f"Error getting client: {e}")
         return {"error": "Error when making external request."}
 
-async def create_customer(customer: utils.CustomerCreateRequest):
+async def create_customer(customer: utilss.CustomerCreateRequest):
     print("Creating customer ...")
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
 
@@ -192,7 +192,8 @@ def read_root():
     return {"status": "Service is up"}
 
 @app.post("/checkAvailability")
-async def check_availability(data: utils.BookingRequest):
+async def check_availability(data: utilss.BookingRequest):
+    print(data,"information of data")
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
     request = data.args
@@ -327,7 +328,7 @@ async def check_availability(data: utils.BookingRequest):
 
 
 @app.post("/createJob")
-async def create_job(job_request: utils.jobCreateToolRequest):
+async def create_job(job_request: utilss.jobCreateToolRequest):
     print("Creating job...")
     job_request = job_request.args
 
@@ -382,7 +383,7 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
 
 @app.post("/rescheduleAppointmentTimeAvailability")
-async def rescheduleAppointmentTimeAvailability (data: utils.ReSchedulaDataToolRequest):
+async def rescheduleAppointmentTimeAvailability (data: utilss.ReSchedulaDataToolRequest):
     print("Processing re scheduling time availability request...")
     data = data.args
     access_token = await get_access_token()
@@ -427,7 +428,7 @@ async def rescheduleAppointmentTimeAvailability (data: utils.ReSchedulaDataToolR
         return {"error": "Error when making external request."}
 
 @app.post("/rescheduleAppointment")
-async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest): 
+async def reschedule_appointment(data: utilss.ReSchedulaDataToolRequest): 
     print("Processing re scheduling request...")
     data = data.args
     print(f"Request data: {data}")
@@ -507,7 +508,7 @@ async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest):
         return {"error": "Error when making external request."}
 
 @app.post("/cancelAppointment")
-async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
+async def cancel_appointment(data: utilss.cancelJobAppointmentToolRequest):
     print("Processing cancellation request...")
     data = data.args
     try:
