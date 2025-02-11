@@ -198,6 +198,8 @@ async def check_availability(data: utils.BookingRequest):
     request = data.args
     print("Checking availability...")
 
+    print(data)
+
     print("Checking if is customer...")
     try:
         url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
@@ -306,7 +308,7 @@ async def check_availability(data: utils.BookingRequest):
         print("Business Unit Checked ✅")
     except ValueError:
         return {"error": "Checking business unit failed."}
-    
+ 
     available_slots = []
 
     try:
@@ -314,12 +316,10 @@ async def check_availability(data: utils.BookingRequest):
 
         if not available_slots:
             print("No available slots found.")
-        if not available_slots:
-            print("No available slots found.")
     except Exception as e:
         print(f"Error checking availability: {e}")
 
-
+    print("Checking availability ✅")
     return {
         'businessUnitId': business_units[0],
         'available_slots': available_slots
@@ -413,9 +413,11 @@ async def rescheduleAppointmentTimeAvailability (data: utils.ReSchedulaDataToolR
         return {"error": "Error when making external request."}
 
     print("Getting slots availables...")
+    available_slots = []
     try:
         slots_availables = await check_availability_time(data.newSchedule, business_unit_id, job_type_id)
         if slots_availables:
+            print("Getting slots availables ✅")
             return slots_availables
         else:
             print("No slots availables.")
