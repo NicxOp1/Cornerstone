@@ -78,9 +78,7 @@ async def get_customer(name):
         return {"error": "Error when making external request."}
 
 async def create_customer(customer: utilss.CustomerCreateRequest):
-    print("Creating customer ...")
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
-
     access_token = await get_access_token()
     headers = {
         "Authorization": access_token,
@@ -88,6 +86,7 @@ async def create_customer(customer: utilss.CustomerCreateRequest):
         "Content-Type": "application/json",
     }
 
+    print("Creating customer ...")
     try:
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
@@ -129,30 +128,91 @@ async def create_customer(customer: utilss.CustomerCreateRequest):
             data = response.json()
             customer_id = data.get("id")
             location_id = data.get("locations")[0].get("id")
-            return {"customer_id": customer_id, "location_id": location_id}
+            print ({"customer_id": customer_id, "location_id": location_id})
 
         raise HTTPException(
             status_code=response.status_code,
             detail=f"Failed to create customer: {response.text}",
-        )
-    except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
+        ) 
+    except ValueError:
+        print({"error": "Failed to create customer."})
+    
+    print("Adding contact data to customer")
+    try:
+    
+        contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
+        
+        contact_payload = []
+
+        if customer.number:
+            contact_payload.append({
+                "type": "mobile",
+                "value": customer.number,
+                "memo": "Customer phone number"
+            })
+
+        if customer.email:
+            contact_payload.append({
+                "type": "e-mail",
+                "value": customer.email,
+                "memo": "Customer email"
+            })
+        
+        response_contacts = requests.post(contact_url, headers=headers, json=contact_payload)
+        if response_contacts.status_code == 200:
+            print("Contact data added successfully ✅")
+        else:
+            print(f"Error adding contact data to customer: {response_contacts.text}")
+            raise HTTPException(
+                status_code=response_contacts.status_code,
+                detail=f"Failed to add contact data to customer: {response_contacts.text}",
+            )
+    except ValueError:
+        print({"error": "Adding contact data to customer failed."})
 
 async def check_availability_time(time, business_units, job_type):
     print("Checking availability time...")
+    
+    available_slots = []
+
     if isinstance(business_units, int):
         business_units = [business_units]
     elif isinstance(business_units, list):
         business_units = [int(bu) for bu in business_units]
+
     try:
         starts_on_or_after = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
-        start_time = datetime.fromisoformat(time.replace("Z", "+00:00"))
+        
+        if "Z" in time:
+            time = time.replace("Z", "+00:00")
+        
+        # Corregir el formato del día si es necesario (eliminando ceros innecesarios en el día)
+        time_parts = time.split('T')
+        date_parts = time_parts[0].split('-')
+        
+        # Asegurarse de que el día tenga dos dígitos (por ejemplo, '012' → '12')
+        date_parts[2] = date_parts[2].lstrip('0')  # Elimina los ceros a la izquierda
+
+        corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
+        
+        try:
+            start_time = datetime.fromisoformat(corrected_time)
+        except ValueError:
+            print(f"Invalid time format: {corrected_time}")
+            return (f"Invalid time format: {corrected_time}")
+
+        # Debug: Verifica las fechas generadas
+        print(f"Start Time: {start_time}, Start DateTime: {starts_on_or_after}")
 
         end_time = start_time + timedelta(days=7)
         end_time = end_time.replace(hour=23, minute=59, second=0, microsecond=0)
         end_time_str = end_time.isoformat().replace("+00:00", "Z")
 
+        # Debug: Verifica la fecha final
+        print(f"End Time: {end_time}, End DateTime: {end_time_str}")
+
         url_capacity = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
+        
         access_token = await get_access_token()
         headers = {
             "Authorization": access_token,
@@ -177,13 +237,15 @@ async def check_availability_time(time, business_units, job_type):
                 {"start": slot["start"], "end": slot["end"]}
                 for slot in response_capacity_json.get("availabilities", []) if slot.get("isAvailable")
             ]
-
         else:
             print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
-    except ValueError:
+
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
         print({"error": "Checking availability time failed."})
     
     return available_slots
+
 
 # Endpoints
 @app.get("/")
@@ -383,7 +445,7 @@ async def create_job(job_request: utilss.jobCreateToolRequest):
         raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
 
 @app.post("/rescheduleAppointmentTimeAvailability")
-async def rescheduleAppointmentTimeAvailability (data: utilss.ReSchedulaDataToolRequest):
+async def reschedule_appointment_time_availability (data: utilss.ReSchedulaDataToolRequest):
     print("Processing re scheduling time availability request...")
     data = data.args
     access_token = await get_access_token()
@@ -418,7 +480,6 @@ async def rescheduleAppointmentTimeAvailability (data: utilss.ReSchedulaDataTool
     try:
         slots_availables = await check_availability_time(data.newSchedule, business_unit_id, job_type_id)
         if slots_availables:
-            print("Getting slots availables ✅")
             return slots_availables
         else:
             print("No slots availables.")
