@@ -252,9 +252,10 @@ async def check_availability(data: utilss.BookingRequest):
             
             url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
             resp = requests.get(url_geocode)
-
-            if resp.status_code == 200:
-                    json_data = resp.json()
+            if resp.status_code != 200:
+                return {"error": "Failed to fetch geolocation data."}
+            else:
+                json_data = resp.json()
             
             lat = json_data.get("latt")
             lon = json_data.get("longt")
@@ -325,7 +326,6 @@ async def check_availability(data: utilss.BookingRequest):
         'businessUnitId': business_units[0],
         'available_slots': available_slots
     }
-
 
 @app.post("/createJob")
 async def create_job(job_request: utilss.jobCreateToolRequest):
@@ -597,6 +597,58 @@ async def get_current_boston_time():
 
     return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
 
+@app.post("/checkWorkArea")
+async def check_work_area(data: utilss.addressCheckToolRequest):
+    data = data.args
+    print("Checking coordinates...")
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+    try:
+        lat, lon = None, None
+        address = f"{data.street}, {data.city}, {data.country}"
+        
+        if not address:
+            return {"error": "The direction is not valid."}
+        
+        url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+        resp = requests.get(url_geocode)
+        if resp.status_code != 200:
+            return {"error": "Failed to fetch geolocation data."}
+        else:
+            json_data = resp.json()
+        
+        lat = json_data.get("latt")
+        lon = json_data.get("longt")
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            return {"error": "The proporcioned coordinates are no valid."}
+
+        if lat is None or lon is None:
+            return {"error": "Could not get address coordinates."}
+        
+        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+        lat2, lon2 = math.radians(lat), math.radians(lon)
+
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
+
+        #Haversine
+        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = round(R * c, 2)
+        print(f"Distance: {distance} miles")
+
+        if distance > 50:
+            return {"error": "There are no services available in the area."}
+        
+        print("Coordinates Checked ✅")
+        return {"message": "Address is in the working area."}
+    except ValueError:
+        return {"error": "Checking coordinates failed."}
 
 
 #dowload fastapi: pip install "fastapi[standard]"

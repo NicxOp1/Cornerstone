@@ -73,6 +73,12 @@ class ToolRequest(BaseModel):
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }
 
+class addressCheckToolRequest(ToolRequest):
+    args: Address
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
 class jobCreateToolRequest(ToolRequest):
     args: JobCreateRequest
     model_config = {
