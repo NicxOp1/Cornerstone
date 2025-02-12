@@ -59,7 +59,7 @@ async def get_customer(name):
             "Content-Type": "application/json",
         }
         response_customers = requests.get(url_customers, headers=headers)
-
+        
         if response_customers.status_code == 200:
             customers_data_json = response_customers.json()
             if "data" in customers_data_json and len(customers_data_json["data"]) > 0:
@@ -504,7 +504,6 @@ async def reschedule_appointment_time_availability (data: utilss.ReSchedulaDataT
 async def reschedule_appointment(data: utilss.ReSchedulaDataToolRequest): 
     print("Processing re scheduling request...")
     data = data.args
-    print(f"Request data: {data}")
     access_token = await get_access_token()
     
     customer_id = await get_customer(data.name)
@@ -574,7 +573,7 @@ async def reschedule_appointment(data: utilss.ReSchedulaDataToolRequest):
         # Devolver la respuesta de la API externa
         if response.status_code == 200:
             print("Reschedule request processed successfully ✅")
-            return response.json()
+            return ("Reschedule request processed successfully")
         else:
             return {"error": f"Request error: {response.status_code}", "details": response.text}
     except requests.exceptions.RequestException as e:
@@ -586,36 +585,23 @@ async def cancel_appointment(data: utilss.cancelJobAppointmentToolRequest):
     data = data.args
     try:
         customer_id = await get_customer(data.name)
-        url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers/{customer_id}"
+        # Obtener el jobId correspondiente al customerId
+        url_appointment = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments?&customerId={customer_id}"
         access_token = await get_access_token()
         headers = {
             "Authorization": access_token,
             "ST-App-Key": APP_ID,
             "Content-Type": "application/json",
         }
-        
-        response_customer = requests.get(url_customer, headers=headers)
-        if response_customer.status_code != 200:
-            return {"error": "Error obtaining customer data.", "details": response_customer.text}
-        
-        customer_data_json = response_customer.json()
-        customer_name = customer_data_json.get("name")
-
-        # Obtener el jobId correspondiente al customer
         print("Getting job id ...")
-        url_bookings = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/export/bookings"
-        response_bookings = requests.get(url_bookings, headers=headers)
+        response_appointment = requests.get(url_appointment, headers=headers)
 
-        if response_bookings.status_code != 200:
-            return {"error": "Error obtaining reservations.", "details": response_bookings.text}
+        if response_appointment.status_code != 200:
+            return {"error": "Error obtaining reservations.", "details": response_appointment.text}
 
-        bookings_data_json = response_bookings.json()
-        job_id = None
-
-        for entry in bookings_data_json.get("data", []):
-            if entry.get("name") == customer_name:
-                job_id = entry.get("jobId")
-                break
+        appointment_data_json = response_appointment.json()
+        job_id = appointment_data_json["data"][0]["jobId"]
+        print(f"Job ID: {job_id}")
 
         if not job_id:
             print("Job ID not found")
