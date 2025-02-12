@@ -54,6 +54,8 @@ class CustomerCreateRequest(BaseModel):
     type: Optional[str] = "Residential"
     locations: List[Location] = Field(..., description="Locations for the customer")
     address: Optional[Address] = None
+    number: str = Field(..., description="Phone number of the customer")
+    email: str = Field(..., description="Email address of the customer")
 
 class JobCreateRequest(BaseModel):
     customer: CustomerCreateRequest  # Cliente a crear

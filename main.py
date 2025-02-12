@@ -128,47 +128,59 @@ async def create_customer(customer: utilss.CustomerCreateRequest):
             data = response.json()
             customer_id = data.get("id")
             location_id = data.get("locations")[0].get("id")
-            print ({"customer_id": customer_id, "location_id": location_id})
+            print({"customer_id": customer_id, "location_id": location_id})
 
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=f"Failed to create customer: {response.text}",
-        ) 
+            # Ahora, agregar los datos de contacto
+            print("Adding contact data to customer")
+
+            contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
+
+            # Primero, crea el contacto con el número móvil si está disponible
+            if customer.number:
+                contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
+                mobile_payload = {
+                    "type": "MobilePhone",  # Tipo: móvil
+                    "value": customer.number,  # El número móvil
+                    "memo": "Customer phone number"  # (Opcional) Nota descriptiva
+                }
+
+                response_mobile = requests.post(contact_url, headers=headers, json=mobile_payload)
+                if response_mobile.status_code == 200:
+                    print("Mobile contact data added successfully ✅")
+                else:
+                    print(f"Error adding mobile contact data: {response_mobile.text}")
+                    raise HTTPException(
+                        status_code=response_mobile.status_code,
+                        detail=f"Failed to add mobile contact data: {response_mobile.text}",
+                    )
+
+            # Luego, crea el contacto con el correo electrónico si está disponible
+            if customer.email:
+                contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
+                email_payload = {
+                    "type": "Email",  # Tipo: correo electrónico
+                    "value": customer.email,  # El valor del correo electrónico
+                    "memo": "Customer email"  # (Opcional) Nota descriptiva
+                }
+
+                response_email = requests.post(contact_url, headers=headers, json=email_payload)
+                if response_email.status_code == 200:
+                    print("Email contact data added successfully ✅")
+                else:
+                    print(f"Error adding email contact data: {response_email.text}")
+                    raise HTTPException(
+                        status_code=response_email.status_code,
+                        detail=f"Failed to add email contact data: {response_email.text}",
+                    )
+            else:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to create customer: {response.text}",
+                )
+            
+            return {"customer_id": customer_id, "location_id": location_id}
     except ValueError:
         print({"error": "Failed to create customer."})
-    
-    print("Adding contact data to customer")
-    try:
-    
-        contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
-        
-        contact_payload = []
-
-        if customer.number:
-            contact_payload.append({
-                "type": "mobile",
-                "value": customer.number,
-                "memo": "Customer phone number"
-            })
-
-        if customer.email:
-            contact_payload.append({
-                "type": "e-mail",
-                "value": customer.email,
-                "memo": "Customer email"
-            })
-        
-        response_contacts = requests.post(contact_url, headers=headers, json=contact_payload)
-        if response_contacts.status_code == 200:
-            print("Contact data added successfully ✅")
-        else:
-            print(f"Error adding contact data to customer: {response_contacts.text}")
-            raise HTTPException(
-                status_code=response_contacts.status_code,
-                detail=f"Failed to add contact data to customer: {response_contacts.text}",
-            )
-    except ValueError:
-        print({"error": "Adding contact data to customer failed."})
 
 async def check_availability_time(time, business_units, job_type):
     print("Checking availability time...")
