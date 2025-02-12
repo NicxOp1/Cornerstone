@@ -500,7 +500,7 @@ async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest):
         # Devolver la respuesta de la API externa
         if response.status_code == 200:
             print("Reschedule request processed successfully ✅")
-            return response.json()
+            return ("Reschedule request processed successfully")
         else:
             return {"error": f"Request error: {response.status_code}", "details": response.text}
     except requests.exceptions.RequestException as e:
