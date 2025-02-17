@@ -122,6 +122,8 @@ async def create_customer(customer: utilss.CustomerCreateRequest):
         }
 
         response = requests.post(url, headers=headers, json=payload)
+        print("Response Status Code:", response.status_code)
+        #print("Response Text:", response.text)
         
         if response.status_code == 200:
             print("Created customer successfully ✅")
@@ -193,10 +195,11 @@ async def check_availability_time(time, business_units, job_type):
         business_units = [int(bu) for bu in business_units]
 
     try:
-        starts_on_or_after = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
         
         if "Z" in time:
             time = time.replace("Z", "+00:00")
+
+        starts_on_or_after = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
         
         # Corregir el formato del día si es necesario (eliminando ceros innecesarios en el día)
         time_parts = time.split('T')
@@ -218,7 +221,7 @@ async def check_availability_time(time, business_units, job_type):
 
         end_time = start_time + timedelta(days=7)
         end_time = end_time.replace(hour=23, minute=59, second=0, microsecond=0)
-        end_time_str = end_time.isoformat().replace("+00:00", "Z")
+        end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
 
         # Debug: Verifica la fecha final
         print(f"End Time: {end_time}, End DateTime: {end_time_str}")
@@ -251,7 +254,6 @@ async def check_availability_time(time, business_units, job_type):
             ]
         else:
             print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
-
     except Exception as e:
         print(f"Error occurred: {str(e)}")
         print({"error": "Checking availability time failed."})
@@ -267,13 +269,10 @@ def read_root():
 
 @app.post("/checkAvailability")
 async def check_availability(data: utilss.BookingRequest):
-    print(data,"information of data")
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
     request = data.args
     print("Checking availability...")
-
-    print(data)
 
     print("Checking if is customer...")
     try:
@@ -488,7 +487,7 @@ async def reschedule_appointment_time_availability (data: utilss.ReSchedulaDataT
         return {"error": "Error when making external request."}
 
     print("Getting slots availables...")
-    available_slots = []
+    slots_availables = []
     try:
         slots_availables = await check_availability_time(data.newSchedule, business_unit_id, job_type_id)
         if slots_availables:
