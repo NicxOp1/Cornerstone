@@ -675,6 +675,9 @@ async def check_work_area(data: utilss.addressCheckToolRequest):
         else:
             json_data = resp.json()
         
+        if json_data.get("standard").get("postal") != data.zip:
+            return {"error": f"The provided zip code does not match the address. The zip code should be this: {json_data.get("standard").get("postal")}"}
+
         lat = json_data.get("latt")
         lon = json_data.get("longt")
 
