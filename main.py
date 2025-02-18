@@ -672,11 +672,12 @@ async def check_work_area(data: utilss.addressCheckToolRequest):
         resp = requests.get(url_geocode)
         if resp.status_code != 200:
             return {"error": "Failed to fetch geolocation data."}
-        else:
-            json_data = resp.json()
+            
+        json_data = resp.json()
         
-        if json_data.get("standard").get("postal") != data.zip:
-            return {"error": f"The provided zip code does not match the address. The zip code should be this: {json_data.get("standard").get("postal")}"}
+        expected_zip = json_data.get("standard").get("postal")
+        if expected_zip != data.zip:
+            return {"error": f"The provided zip code does not match the address. The zip code should be this: {expected_zip}"}
 
         lat = json_data.get("latt")
         lon = json_data.get("longt")
