@@ -27,13 +27,7 @@ class Address(BaseModel):
 class Location(BaseModel):
     name: str = Field(..., description="Location name")
     address: Address = Field(..., description="Address of the location")
-    
-class CallInfo(BaseModel):
-    call_id: str
-    retell_llm_dynamic_variables: List[Any]
-    latency: Dict[str, Any]
-    opt_out_sensitive_data_storage: bool
-    call_type: str
+
 
 class RequestArgs(BaseModel):
     name: str = Field(..., description="Name of the customer")
@@ -47,8 +41,6 @@ class RequestArgs(BaseModel):
     email: str = Field(..., description="email address of the customer")
 
 class BookingRequest(BaseModel):
-    call: CallInfo
-    name: str = "check_availability"
     args: RequestArgs
 
     model_config = {
@@ -62,6 +54,8 @@ class CustomerCreateRequest(BaseModel):
     type: Optional[str] = "Residential"
     locations: List[Location] = Field(..., description="Locations for the customer")
     address: Optional[Address] = None
+    number: str = Field(..., description="Phone number of the customer")
+    email: str = Field(..., description="Email address of the customer")
 
 class JobCreateRequest(BaseModel):
     customer: CustomerCreateRequest  # Cliente a crear
@@ -77,9 +71,18 @@ class ToolRequest(BaseModel):
     data: Optional[Any] = None
     args: Any
 
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
+class addressCheckToolRequest(ToolRequest):
+    args: Address
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
 class jobCreateToolRequest(ToolRequest):
     args: JobCreateRequest
-
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }
@@ -92,7 +95,6 @@ class ReScheduleData(BaseModel):
 
 class ReSchedulaDataToolRequest(ToolRequest):
     args: ReScheduleData
-
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }
@@ -106,7 +108,6 @@ class cancelJobAppointment(BaseModel):
 
 class cancelJobAppointmentToolRequest(ToolRequest):
     args: cancelJobAppointment
-
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }

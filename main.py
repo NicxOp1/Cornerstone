@@ -177,7 +177,6 @@ async def check_availability_time(time, business_units, job_type):
                 {"start": slot["start"], "end": slot["end"]}
                 for slot in response_capacity_json.get("availabilities", []) if slot.get("isAvailable")
             ]
-
         else:
             print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
     except ValueError:
@@ -324,7 +323,6 @@ async def check_availability(data: utils.BookingRequest):
         'businessUnitId': business_units[0],
         'available_slots': available_slots
     }
-
 
 @app.post("/createJob")
 async def create_job(job_request: utils.jobCreateToolRequest):
@@ -581,6 +579,70 @@ async def get_current_boston_time():
     print("Getting current time successfully ✅")
 
     return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+@app.post("/checkWorkArea")
+async def check_work_area(data: utils.addressCheckToolRequest):
+    data = data.args
+    print("Checking coordinates...")
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+
+    try:
+        lat, lon = None, None
+        address = f"{data.street}, {data.city}, {data.country}"
+
+        if not address:
+            return {"error": "The direction is not valid."}
+
+        url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+        resp = requests.get(url_geocode)
+
+        if resp.status_code != 200:
+            return {"error": "Failed to fetch geolocation data."}
+
+        json_data = resp.json()
+
+        # Manejo de dirección inexistente
+        if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
+            return {"error": "The address received does not exist."}
+
+        expected_zip = json_data.get("standard", {}).get("postal")
+        if expected_zip and expected_zip != data.zip:
+            return {"error": f"The provided zip code does not match the address. The zip code should be this: {expected_zip}"}
+
+        lat = json_data.get("latt")
+        lon = json_data.get("longt")
+
+        try:
+            lat = float(lat)
+            lon = float(lon)
+        except ValueError:
+            return {"error": "The provided coordinates are not valid."}
+
+        if lat is None or lon is None:
+            return {"error": "Could not get address coordinates."}
+
+        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+        lat2, lon2 = math.radians(lat), math.radians(lon)
+
+        delta_lat = lat2 - lat1
+        delta_lon = lon2 - lon1
+
+        # Haversine formula
+        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        distance = round(R * c, 2)
+        print(f"Distance: {distance} miles")
+
+        if distance > 50:
+            return {"error": "There are no services available in the area."}
+
+        print("Coordinates Checked ✅")
+        return {"message": "Address is in the working area."}
+
+    except ValueError:
+        return {"error": "Checking coordinates failed."}
 
 
 
