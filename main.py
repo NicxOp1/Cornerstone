@@ -59,23 +59,29 @@ async def get_customer(name):
             "Content-Type": "application/json",
         }
         response_customers = requests.get(url_customers, headers=headers)
-        
+
         if response_customers.status_code == 200:
             customers_data_json = response_customers.json()
-            if "data" in customers_data_json and len(customers_data_json["data"]) > 0:
-                for customer in customers_data_json["data"]:
-                    if customer.get("name") == name:
-                        customer_id = customer.get("id")
-                        print("Customer achieved ✅")
-                        break
-                    else:
-                        return {"error": "Client ID not found."}
-            else:
-                return {"error": "Client ID not found."}
-        return customer_id
+            
+            if not customers_data_json.get("data"):
+                print("Error: No customers found.")
+                return {"error": "Customer not found by name."}
+
+            for customer in customers_data_json["data"]:
+                if customer.get("name") == name:
+                    print("Customer found ✅")
+                    return customer.get("id")
+            
+            print("Error: No exact match for customer name.")
+            return {"error": "Customer not found by name."}
+
+        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        return {"error": f"Unexpected response status: {response_customers.status_code}"}
+    
     except requests.exceptions.RequestException as e:
         print(f"Error getting client: {e}")
         return {"error": "Error when making external request."}
+
 
 async def create_customer(customer: utils.CustomerCreateRequest):
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
@@ -205,8 +211,8 @@ async def check_availability_time(time, business_units, job_type):
         time_parts = time.split('T')
         date_parts = time_parts[0].split('-')
         
-        # Asegurarse de que el día tenga dos dígitos (por ejemplo, '012' → '12')
-        date_parts[2] = date_parts[2].lstrip('0')  # Elimina los ceros a la izquierda
+        # Asegurar que el día tenga siempre dos dígitos
+        date_parts[2] = date_parts[2].zfill(2)  
 
         corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
         
@@ -460,9 +466,18 @@ async def reschedule_appointment_time_availability (data: utils.ReSchedulaDataTo
     print("Processing re scheduling time availability request...")
     data = data.args
     access_token = await get_access_token()
-    customer_id = await get_customer(data.name)
+    
+    customer_response = await get_customer(data.name)
+
+    if isinstance(customer_response, dict) and "error" in customer_response:
+        print(f"Error fetching customer: {customer_response['error']}")
+        return customer_response
+    
+    customer_id = customer_response
 
     print("Getting job data ...")
+    job_type_id = None
+    business_unit_id = None
     try:
         url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
         headers = {
@@ -485,6 +500,9 @@ async def reschedule_appointment_time_availability (data: utils.ReSchedulaDataTo
     except requests.exceptions.RequestException as e:
         print(f"Error getting appointment id: {e}")
         return {"error": "Error when making external request."}
+    
+    if job_type_id is None or business_unit_id is None:
+        return {"error": "The customer does not have any pending jobs."}
 
     print("Getting slots availables...")
     slots_availables = []
@@ -505,7 +523,13 @@ async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest):
     data = data.args
     access_token = await get_access_token()
     
-    customer_id = await get_customer(data.name)
+    customer_response = await get_customer(data.name)
+
+    if isinstance(customer_response, dict) and "error" in customer_response:
+        print(f"Error fetching customer: {customer_response['error']}")
+        return customer_response
+    
+    customer_id = customer_response
     
     print("Getting appointment id ...")
     try:
@@ -583,7 +607,14 @@ async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
     print("Processing cancellation request...")
     data = data.args
     try:
-        customer_id = await get_customer(data.name)
+        customer_response = await get_customer(data.name)
+
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            print(f"Error fetching customer: {customer_response['error']}")
+            return customer_response
+        
+        customer_id = customer_response
+
         # Obtener el jobId correspondiente al customerId
         url_appointment = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments?&customerId={customer_id}"
         access_token = await get_access_token()
