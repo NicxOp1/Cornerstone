@@ -65,6 +65,7 @@ class JobCreateRequest(BaseModel):
     campaignId: int  # ✅ ID de la campaña de marketing
     jobStartTime: str = Field(..., description="Scheduled date in YYYY-MM-DD format")
     jobEndTime: str = Field(..., description="Scheduled date in YYYY-MM-DD format")
+    summary: str = Field(..., description="Brief summary of the job request")
 
 class ToolRequest(BaseModel):
     event: Optional[str] = None
