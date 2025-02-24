@@ -725,8 +725,15 @@ async def check_work_area(data: utils.addressCheckToolRequest):
             return {"error": "The address received does not exist."}
 
         expected_zip = json_data.get("standard", {}).get("postal")
-        if expected_zip and expected_zip != data.zip:
-            return {"error": f"The provided zip code does not match the address. The zip code should be this: {expected_zip}"}
+        client_zip = data.zip
+
+        # Extraer solo los primeros 5 dígitos del zip devuelto por la API
+        expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
+
+        print(f"Client ZIP: {client_zip}, Expected ZIP: {expected_zip_clean}")
+
+        if expected_zip_clean and expected_zip_clean != client_zip:
+            return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
 
         lat = json_data.get("latt")
         lon = json_data.get("longt")
