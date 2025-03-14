@@ -770,6 +770,106 @@ async def check_work_area(data: utils.addressCheckToolRequest):
         return {"error": "Checking coordinates failed."}
 
 
+#Outbound
+
+@app.post("/checkAvailabilityOutbound")
+async def check_availability_outbound(data: utils.BookingRequestOutbound):
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+    jobType = 48838652
+    business_unit = 4931462
+    request = data.args
+    print("Checking availability...")
+ 
+    available_slots = []
+
+    try:
+        available_slots = await check_availability_time(request.time, business_unit, jobType)
+
+        if not available_slots:
+            print("No available slots found.")
+    except Exception as e:
+        print(f"Error checking availability: {e}")
+
+    print("Checking availability ✅")
+    return {
+        'available_slots': available_slots
+    }
+
+@app.post("/createJobOutbound")
+async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
+    print("Creating job...")
+    job_request = job_request.args
+    jobType = 48838652
+    business_unit = 4931462
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        # Traer customerId
+        customer_id = await get_customer(job_request.name)
+
+        #Traer locationId
+        url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
+        location_response = requests.get(url_location, headers=headers)
+        location_id = location_response.json().get("data")[0].get("id")
+
+        # Convertir jobStartTime y jobEndTime a datetime
+        start_time = datetime.fromisoformat(job_request.jobStartTime.replace("Z", "+00:00"))
+        end_time = datetime.fromisoformat(job_request.jobEndTime.replace("Z", "+00:00"))
+
+        # Sumar 3 horas
+        start_time += timedelta(hours=3)
+        end_time += timedelta(hours=3)
+
+        # Convertir a formato ISO 8601 con "Z"
+        job_request.jobStartTime = start_time.isoformat().replace("+00:00", "Z")
+        job_request.jobEndTime = end_time.isoformat().replace("+00:00", "Z")
+
+        # ✅ Construir el payload correctamente       HARDCODEAR BUID Y JOB TYPE
+        payload = {
+            "customerId": customer_id,
+            "locationId": location_id,
+            "businessUnitId": business_unit,
+            "jobTypeId": jobType,
+            "priority": job_request.priority,
+            "campaignId": job_request.campaignId,
+            "appointments": [
+                {
+                    "start": job_request.jobStartTime,
+                    "end": job_request.jobEndTime,
+                    "arrivalWindowStart": job_request.jobStartTime,
+                    "arrivalWindowEnd": job_request.jobEndTime,
+                }
+            ],
+            "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
+            "scheduledTime": datetime.now().strftime("%H:%M"),
+            "summary": job_request.summary
+        }
+
+        # ✅ ENVIAR SOLICITUD A SERVICE TITAN
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            print(f"Error in response: {response.status_code}, {response.text}")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to create job: {response.text}",
+            )
+
+        job_data = response.json()
+        print("Job request created successfully ✅")
+        return {"status": "Job request booked", "job_id": job_data.get("id")}
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
+
+
 
 #dowload fastapi: pip install "fastapi[standard]"
 #dowload dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
