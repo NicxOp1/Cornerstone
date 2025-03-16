@@ -117,13 +117,11 @@ class cancelJobAppointmentToolRequest(ToolRequest):
 #Outbound 
 
 class RequestArgsOutbound(BaseModel):
-    name: str = Field(..., description="Name of the customer")
-    address: str = Field(description="Full address of the customer, e.g., '123 Main St, City, Zip'")
-    locName: str = Field(description="Location name where the job will be performed")
     time: str = Field(..., description="Requested time for the job in ISO 8601 format")
-    locations: Location = Field(description="Details about the location")
-    number: int = Field(..., description="phone number of the customer")
-    email: str = Field(..., description="email address of the customer")
+
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
 
 class BookingRequestOutbound(BaseModel):
     args: RequestArgsOutbound
@@ -136,7 +134,6 @@ class BookingRequestOutbound(BaseModel):
 class JobCreateRequestOutbound(BaseModel):
     name: str = Field(default="John Tester", description="Name of the customer")
     priority: str  # ✅ Prioridad (Normal, Alta, etc.)
-    campaignId: int  # ✅ ID de la campaña de marketing
     jobStartTime: str = Field(..., description="Scheduled date in YYYY-MM-DD format")
     jobEndTime: str = Field(..., description="Scheduled date in YYYY-MM-DD format")
     summary: str = Field(..., description="Brief summary of the job request")

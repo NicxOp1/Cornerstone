@@ -799,6 +799,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 @app.post("/createJobOutbound")
 async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
     print("Creating job...")
+    campaignId = 82014707
     job_request = job_request.args
     jobType = 48838652
     business_unit = 4931462
@@ -832,14 +833,14 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
         job_request.jobStartTime = start_time.isoformat().replace("+00:00", "Z")
         job_request.jobEndTime = end_time.isoformat().replace("+00:00", "Z")
 
-        # ✅ Construir el payload correctamente       HARDCODEAR BUID Y JOB TYPE
+        # ✅ Construir el payload correctamente 
         payload = {
             "customerId": customer_id,
             "locationId": location_id,
             "businessUnitId": business_unit,
             "jobTypeId": jobType,
             "priority": job_request.priority,
-            "campaignId": job_request.campaignId,
+            "campaignId": campaignId,
             "appointments": [
                 {
                     "start": job_request.jobStartTime,
@@ -868,7 +869,6 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
         return {"status": "Job request booked", "job_id": job_data.get("id")}
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
-
 
 
 #dowload fastapi: pip install "fastapi[standard]"
