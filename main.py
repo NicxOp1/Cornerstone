@@ -814,7 +814,13 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
 
     try:
         # Traer customerId
-        customer_id = await get_customer(job_request.name)
+        customer_response = await get_customer(job_request.name)
+
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            print(f"Error fetching customer: {customer_response['error']}")
+            return customer_response
+    
+        customer_id = customer_response
 
         #Traer locationId
         url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
