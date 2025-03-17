@@ -419,10 +419,33 @@ async def create_job(job_request: utils.jobCreateToolRequest):
     }
 
     try:
-        # ✅ CREAR CLIENTE Y OBTENER SU ID
-        customer_response = await create_customer(job_request.customer)
-        customer_id = customer_response["customer_id"]
-        location_id = customer_response["location_id"]
+        # Buscar si el cliente ya existe
+        customer_response = await get_customer(job_request.customer.name)
+
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            # Si el cliente no existe, crearlo
+            print(f"Customer not found: {customer_response['error']}. Creating new customer...")
+            
+            customer_response = await create_customer(job_request.customer)
+            customer_id = customer_response["customer_id"]
+            location_id = customer_response["location_id"]
+
+            print(f"New customer created with ID: {customer_id} and Location ID: {location_id}")
+        else:
+            # Si el cliente existe, obtener su customer_id
+            customer_id = customer_response
+            print(f"Customer found with ID: {customer_id}. Fetching location...")
+
+            # Obtener location_id basado en customer_id
+            url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
+            location_response = requests.get(url_location, headers=headers)
+
+            if location_response.status_code == 200 and location_response.json().get("data"):
+                location_id = location_response.json().get("data")[0].get("id")
+                print(f"Location ID found: {location_id}")
+            else:
+                print("Error: Unable to fetch location ID.")
+                return {"error": "Failed to retrieve location ID for existing customer."}
 
         # Convertir jobStartTime y jobEndTime a datetime
         start_time = datetime.fromisoformat(job_request.jobStartTime.replace("Z", "+00:00"))
@@ -456,6 +479,8 @@ async def create_job(job_request: utils.jobCreateToolRequest):
             "scheduledTime": datetime.now().strftime("%H:%M"),
             "summary": job_request.summary
         }
+        
+        print (payload)
 
         # ✅ ENVIAR SOLICITUD A SERVICE TITAN
         response = requests.post(url, headers=headers, json=payload)
