@@ -452,8 +452,8 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         end_time = datetime.fromisoformat(job_request.jobEndTime.replace("Z", "+00:00"))
 
         # Sumar 3 horas
-#         start_time += timedelta(hours=3)
-#        end_time += timedelta(hours=3)
+        start_time += timedelta(hours=3)
+        end_time += timedelta(hours=3)
 
         # Convertir a formato ISO 8601 con "Z"
         job_request.jobStartTime = start_time.isoformat().replace("+00:00", "Z")
