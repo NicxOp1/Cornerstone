@@ -93,18 +93,30 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
     print("Creating customer ...")
     try:
+        if not customer.name or not customer.number or not customer.email:
+            return {"error": "Customer name, number, and email are required."}
+
+        # Definir la dirección si no está completa
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
+        else:
+            return {"error": "Customer location is missing."}
 
         if hasattr(location, 'address') and location.address:
-            if not getattr(location.address, 'country', None):
-                location.address.country = "USA"
-            if not getattr(location.address, 'state', None):
-                location.address.state = "SC"
+            location.address.country = location.address.country or "USA"
+            location.address.state = location.address.state or "SC"
 
+        # Construcción del payload
         payload = {
             "name": customer.name,
             "type": customer.type,
+            "address": {
+                "street": location.address.street or "",
+                "city": location.address.city or "",
+                "state": location.address.state or "",
+                "zip": location.address.zip or "",
+                "country": location.address.country or "",
+            },
             "locations": [
                 {
                     "name": location.name,
@@ -112,23 +124,26 @@ async def create_customer(customer: utils.CustomerCreateRequest):
                         "street": location.address.street or "",
                         "city": location.address.city or "",
                         "zip": location.address.zip or "",
-                        "country": location.address.country or "USA",
-                        "state": location.address.state or "SC",
+                        "country": location.address.country,
+                        "state": location.address.state,
                     },
                 }
-            ],
-            "address": {
-                "street": (customer.address.street if customer.address else location.address.street) or "",
-                "city": (customer.address.city if customer.address else location.address.city) or "",
-                "zip": (customer.address.zip if customer.address else location.address.zip) or "",
-                "country": (customer.address.country if customer.address else location.address.country) or "USA",
-                "state": (customer.address.state if customer.address else location.address.state) or "SC",
-            },
+            ]
         }
 
         response = requests.post(url, headers=headers, json=payload)
         print("Response Status Code:", response.status_code)
-        #print("Response Text:", response.text)
+        
+        if response.status_code != 200:
+            print(f"Error creating customer: {response.text}")
+            return {"error": f"Failed to create customer: {response.text}"}
+
+        data = response.json()
+        customer_id = data.get("id")
+        location_id = data.get("locations", [{}])[0].get("id")
+
+        if not customer_id or not location_id:
+            return {"error": "Customer or Location ID missing in API response."}
         
         if response.status_code == 200:
             print("Created customer successfully ✅")
@@ -462,20 +477,26 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         customer_response = await get_customer(job_request.customer.name)
 
         if isinstance(customer_response, dict) and "error" in customer_response:
-            # Si el cliente no existe, crearlo
             print(f"Customer not found: {customer_response['error']}. Creating new customer...")
-            
+
             customer_response = await create_customer(job_request.customer)
-            customer_id = customer_response["customer_id"]
-            location_id = customer_response["location_id"]
+
+            if "error" in customer_response:
+                print(f"Failed to create customer: {customer_response['error']}")
+                return {"error": customer_response['error']}
+
+            customer_id = customer_response.get("customer_id")
+            location_id = customer_response.get("location_id")
+
+            if not customer_id or not location_id:
+                return {"error": "Customer created but missing customer_id or location_id."}
 
             print(f"New customer created with ID: {customer_id} and Location ID: {location_id}")
+
         else:
-            # Si el cliente existe, obtener su customer_id
             customer_id = customer_response
             print(f"Customer found with ID: {customer_id}. Fetching location...")
 
-            # Obtener location_id basado en customer_id
             url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
             location_response = requests.get(url_location, headers=headers)
 
@@ -518,24 +539,23 @@ async def create_job(job_request: utils.jobCreateToolRequest):
             "scheduledTime": datetime.now().strftime("%H:%M"),
             "summary": job_request.summary
         }
-        
-        print (payload)
+
+        print(payload)
 
         # ✅ ENVIAR SOLICITUD A SERVICE TITAN
         response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
             print(f"Error in response: {response.status_code}, {response.text}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Failed to create job: {response.text}",
-            )
+            return {"error": f"Failed to create job: {response.text}"}
 
         job_data = response.json()
         print("Job request created successfully ✅")
         return {"status": "Job request booked", "job_id": job_data.get("id")}
+
     except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
+        print(f"Request error: {str(e)}")
+        return {"error": "Unexpected request error"}
 
 @app.post("/rescheduleAppointmentTimeAvailability")
 async def reschedule_appointment_time_availability (data: utils.ReSchedulaDataToolRequest):
