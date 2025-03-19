@@ -265,6 +265,45 @@ async def check_availability_time(time, business_units, job_type):
     
     return available_slots
 
+async def get_technicians_by_businessUnitId(businessUnitId):
+    print(f"Getting technicians for Business Unit ID: {businessUnitId}...")
+    technicians = []
+
+    try:
+        url_technicians = f"https://api.servicetitan.io/settings/v2/tenant/{TENANT_ID}/technicians"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        response_technicians = requests.get(url_technicians, headers=headers)
+
+        if response_technicians.status_code == 200:
+            print("Technicians fetched successfully.")
+            response_data = response_technicians.json()
+            
+            # Filtrar los técnicos según el businessUnitId
+            technicians = [
+                tech for tech in response_data.get("data", []) if tech.get("businessUnitId") == businessUnitId
+            ]
+
+            if technicians:
+                print(f"Found {len(technicians)} technicians for Business Unit ID {businessUnitId}.")
+            else:
+                print(f"No technicians found for Business Unit ID {businessUnitId}.")
+            
+            return technicians
+
+        else:
+            print(f"Error fetching technicians. Status Code: {response_technicians.status_code}")
+            return {"error": "Failed to retrieve technicians."}
+
+    except Exception as e:
+        print(f"Error occurred: {str(e)}")
+        return {"error": "Checking technicians by business unit failed."}
+
 
 # Endpoints
 @app.get("/")
@@ -801,9 +840,12 @@ async def check_work_area(data: utils.addressCheckToolRequest):
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
-    jobType = 48838652
-    business_unit = 4931462
+    jobType = 5879699
+    business_unit = 5878155
     request = data.args
+
+    await get_technicians_by_businessUnitId(5878155)
+
     print("Checking availability...")
  
     available_slots = []
@@ -821,7 +863,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
         'available_slots': available_slots
     }
 
-@app.post("/createJobOutbound")
+#@app.post("/createJobOutbound")
 async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
     print("Creating job...")
     campaignId = 82014707
