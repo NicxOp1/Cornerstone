@@ -853,6 +853,92 @@ async def check_work_area(data: utils.addressCheckToolRequest):
     except ValueError:
         return {"error": "Checking coordinates failed."}
 
+@app.post("/createJob-3")
+async def create_job_3(job_request: utils.jobCreateToolRequest):
+    print("Creating job...")
+    job_request = job_request.args
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
+    try:
+        # Buscar si el cliente ya existe
+        customer_response = await get_customer(job_request.customer.name)
+
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            print(f"Customer not found: {customer_response['error']}. Creating new customer...")
+
+            customer_response = await create_customer(job_request.customer)
+
+            if "error" in customer_response:
+                print(f"Failed to create customer: {customer_response['error']}")
+                return {"error": customer_response['error']}
+
+            customer_id = customer_response.get("customer_id")
+            location_id = customer_response.get("location_id")
+
+            if not customer_id or not location_id:
+                return {"error": "Customer created but missing customer_id or location_id."}
+
+            print(f"New customer created with ID: {customer_id} and Location ID: {location_id}")
+
+        else:
+            customer_id = customer_response
+            print(f"Customer found with ID: {customer_id}. Fetching location...")
+
+            url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
+            location_response = requests.get(url_location, headers=headers)
+
+            if location_response.status_code == 200 and location_response.json().get("data"):
+                location_id = location_response.json().get("data")[0].get("id")
+                print(f"Location ID found: {location_id}")
+            else:
+                print("Error: Unable to fetch location ID.")
+                return {"error": "Failed to retrieve location ID for existing customer."}
+
+        # ✅ Construir el payload correctamente
+        payload = {
+            "customerId": customer_id,
+            "locationId": location_id,
+            "businessUnitId": job_request.businessUnitId,
+            "jobTypeId": job_request.jobTypeId,
+            "priority": job_request.priority,
+            "campaignId": job_request.campaignId,
+            "appointments": [
+                {
+                    "start": job_request.jobStartTime,
+                    "end": job_request.jobEndTime,
+                    "arrivalWindowStart": job_request.jobStartTime,
+                    "arrivalWindowEnd": job_request.jobEndTime,
+                }
+            ],
+            "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
+            "scheduledTime": datetime.now().strftime("%H:%M"),
+            "summary": job_request.summary
+        }
+
+        print(payload)
+
+        # ✅ ENVIAR SOLICITUD A SERVICE TITAN
+        response = requests.post(url, headers=headers, json=payload)
+
+        if response.status_code != 200:
+            print(f"Error in response: {response.status_code}, {response.text}")
+            return {"error": f"Failed to create job: {response.text}"}
+
+        job_data = response.json()
+        print("Job request created successfully ✅")
+        return {"status": "Job request booked", "job_id": job_data.get("id")}
+
+    except requests.exceptions.RequestException as e:
+        print(f"Request error: {str(e)}")
+        return {"error": "Unexpected request error"}
+
 
 #Outbound
 
