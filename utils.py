@@ -114,6 +114,17 @@ class cancelJobAppointmentToolRequest(ToolRequest):
     }
 
 
+class updateJobSummary(BaseModel):
+    name: str = Field(..., description="Name of the customer")
+    info: str = Field(description="Summary")
+
+class updateJobSummaryToolRequest(ToolRequest):
+    args: updateJobSummary
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
+
 #Outbound 
 
 class RequestArgsOutbound(BaseModel):

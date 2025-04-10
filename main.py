@@ -56,7 +56,7 @@ def massachusetts_to_utc(dt_str: str) -> str:
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 async def get_customer(name):
-    print("Getting customer...")
+    print("Getting customer by name...")
     try:
         url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?name={name}"
         access_token = await get_access_token()
@@ -71,16 +71,46 @@ async def get_customer(name):
             customers_data_json = response_customers.json()
             
             if not customers_data_json.get("data"):
-                print("Error: No customers found.")
+                print("Error: No customers found by name.")
                 return {"error": "Customer not found by name."}
 
             for customer in customers_data_json["data"]:
                 if customer.get("name") == name:
-                    print("Customer found ✅")
+                    print("Customer found by name✅")
                     return customer.get("id")
             
             print("Error: No exact match for customer name.")
             return {"error": "Customer not found by name."}
+
+        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        return {"error": f"Unexpected response status: {response_customers.status_code}"}
+    
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting client: {e}")
+        return {"error": "Error when making external request."}
+
+async def get_customer_by_phone(phone):
+    print("Getting customer by phone...")
+    try:
+        url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?phone={phone}"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        response_customers = requests.get(url_customers, headers=headers)
+
+        if response_customers.status_code == 200:
+            customers_data_json = response_customers.json()
+            
+            if not customers_data_json.get("data"):
+                print("Error: No customers found by phone.")
+                return {"error": "Customer not found by phone."}
+
+            customer = customers_data_json["data"][0]
+            print("Customer found by phone✅")
+            return customer.get("id")
 
         print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
@@ -480,11 +510,16 @@ async def create_job(job_request: utils.jobCreateToolRequest):
     }
 
     try:
-        # Buscar si el cliente ya existe
-        customer_response = await get_customer(job_request.customer.name)
+        # Primero buscar el cliente por número de teléfono
+        customer_response = await get_customer_by_phone(job_request.customer.number)
+
+        # Si no lo encuentra por teléfono, buscar por nombre
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            print(f"{customer_response['error']}. Trying by name...")
+            customer_response = await get_customer(job_request.customer.name)
 
         if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"Customer not found: {customer_response['error']}. Creating new customer...")
+            print(f"{customer_response['error']}. Creating new customer...")
 
             customer_response = await create_customer(job_request.customer)
 
@@ -499,7 +534,6 @@ async def create_job(job_request: utils.jobCreateToolRequest):
                 return {"error": "Customer created but missing customer_id or location_id."}
 
             print(f"New customer created with ID: {customer_id} and Location ID: {location_id}")
-
         else:
             customer_id = customer_response
             print(f"Customer found with ID: {customer_id}. Fetching location...")
@@ -538,8 +572,6 @@ async def create_job(job_request: utils.jobCreateToolRequest):
             "scheduledTime": datetime.now().strftime("%H:%M"),
             "summary": job_request.summary
         }
-
-        print(payload)
 
         # ✅ ENVIAR SOLICITUD A SERVICE TITAN
         response = requests.post(url, headers=headers, json=payload)
@@ -851,6 +883,60 @@ async def check_work_area(data: utils.addressCheckToolRequest):
 
     except ValueError:
         return {"error": "Checking coordinates failed."}
+
+@app.post("/updateJobSummary")
+async def update_job_summary(data: utils.updateJobSummaryToolRequest):
+    data = data.args
+    access_token = await get_access_token()
+    customer_id = await get_customer(data.name)
+
+    if not customer_id:
+        return {"error": "Customer not found."}
+
+    print("Getting job data...")
+    url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+    response_jobs = requests.get(url_jobs, headers=headers)
+
+    if response_jobs.status_code != 200:
+        return {"error": "Failed to fetch job data."}
+
+    jobs_data_json = response_jobs.json()
+    if not jobs_data_json.get("data"):
+        return {"error": "No jobs found for this customer."}
+
+    job = jobs_data_json["data"][0]
+    job_id = job.get("id")
+    current_summary = job.get("summary")
+
+    new_summary = f"<p>{data.info}</p>"
+
+    if current_summary:
+        updated_summary = f"{current_summary}\n{new_summary}".strip()
+    else:
+        updated_summary = new_summary
+
+    print(f"Updating summary for job ID {job_id}...")
+    url_patch = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
+    patch_payload = {
+        "summary": updated_summary
+    }
+
+    patch_response = requests.patch(url_patch, headers=headers, json=patch_payload)
+
+    if patch_response.status_code == 200:
+        print("Job summary updated successfully ✅")
+        return {"status": "Job summary updated"}
+    else:
+        return {
+            "error": "Failed to update job summary.",
+            "status_code": patch_response.status_code,
+            "details": patch_response.text
+        }
 
 
 #Outbound
