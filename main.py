@@ -548,7 +548,13 @@ async def create_job(job_request: utils.jobCreateToolRequest):
                 print("Error: Unable to fetch location ID.")
                 return {"error": "Failed to retrieve location ID for existing customer."}
 
-        # Convertir a formato ISO 8601 con "Z"
+        # Asegurar que las fechas tengan la "Z" al final si no la tienen
+        if not job_request.jobStartTime.endswith("Z"):
+            job_request.jobStartTime += "Z"
+        if not job_request.jobEndTime.endswith("Z"):
+            job_request.jobEndTime += "Z"
+
+        # Convertir a UTC desde hora de Massachusetts
         job_request.jobStartTime = massachusetts_to_utc(job_request.jobStartTime)
         job_request.jobEndTime = massachusetts_to_utc(job_request.jobEndTime)
 
@@ -574,7 +580,8 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         }
 
         # ✅ ENVIAR SOLICITUD A SERVICE TITAN
-        response = requests.post(url, headers=headers, json=payload)
+        return payload
+        #response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
             print(f"Error in response: {response.status_code}, {response.text}")
