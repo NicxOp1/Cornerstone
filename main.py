@@ -580,8 +580,8 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         }
 
         # ✅ ENVIAR SOLICITUD A SERVICE TITAN
-        return payload
-        #response = requests.post(url, headers=headers, json=payload)
+        
+        response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
             print(f"Error in response: {response.status_code}, {response.text}")
