@@ -27,6 +27,22 @@ MAPS_AUTH= os.getenv("MAPS_AUTH")
 
 app = FastAPI()
 
+CITIES = {
+    "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree",
+    "brockton", "cambridge", "chelsea", "chicopee", "easthampton", "everett", "fall river",
+    "fitchburg", "framingham", "franklin", "gardner", "gloucester", "greenfield",
+    "haverhill", "holyoke", "lawrence", "leominster", "lowell", "lynn", "malden",
+    "marlborough", "medford", "melrose", "methuen", "new bedford", "newburyport",
+    "newton", "north adams", "northampton", "palmer", "peabody", "pittsfield", "quincy",
+    "randolph", "revere", "salem", "somerville", "southbridge", "springfield", "taunton",
+    "waltham", "watertown", "west springfield", "westfield", "weymouth", "winthrop",
+    "woburn", "worcester", "bridgewater", "amherst",
+    "berlin", "claremont", "concord", "dover", "franklin", "keene", "laconia",
+    "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth", "acton", "arlington", "atkinson", "derry", "hudson"
+}
+
+VALID_STATES = {"MA", "NH", "New Hampshire", "Massachusetts"}
+
 # Auxiliary functions
 async def get_access_token():
     try:
@@ -365,8 +381,6 @@ def read_root():
 
 @app.post("/checkAvailability")
 async def check_availability(data: utils.BookingRequest):
-    PO_BOX_SALEM = (42.775, -71.217)
-    R = 3958.8
     request = data.args
     print("Checking availability...")
 
@@ -395,69 +409,6 @@ async def check_availability(data: utils.BookingRequest):
         print("Customer Checked ✅")
     except ValueError:
         return {"error": "Cheking customer failed."}
-
-
-    print("Checking coordinates...")
-    try:
-        lat, lon = None, None
-
-        if request.isCustomer == True:
-            if "data" in customer_info_json and customer_info_json["data"]:
-                first_data = customer_info_json["data"][0]
-
-                if "address" in first_data and "latitude" in first_data["address"] and "longitude" in first_data["address"]:
-                    lat, lon = first_data["address"]["latitude"], first_data["address"]["longitude"]
-                    print(lat, lon)
-                else:
-                    print("Error: La dirección del cliente no tiene latitud o longitud.")
-            else:
-                print("Error: No se encontraron datos de cliente.")
-            
-        if lat is None or lon is None:
-            address = f"{request.locations.address.street}, {request.locations.address.city}, {request.locations.address.country}"
-            
-            if not address:
-                return {"error": "The direction is not valid."}
-            
-            url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-            resp = requests.get(url_geocode)
-            if resp.status_code != 200:
-                return {"error": "Failed to fetch geolocation data."}
-            else:
-                json_data = resp.json()
-            
-            lat = json_data.get("latt")
-            lon = json_data.get("longt")
-
-        try:
-            lat = float(lat)
-            lon = float(lon)
-        except ValueError:
-            return {"error": "The proporcioned coordinates are no valid."}
-
-        if lat is None or lon is None:
-            return {"error": "Could not get address coordinates."}
-        
-        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
-        lat2, lon2 = math.radians(lat), math.radians(lon)
-
-        delta_lat = lat2 - lat1
-        delta_lon = lon2 - lon1
-
-        #Haversine
-        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        distance = round(R * c, 2)
-        print(f"Distance: {distance} miles")
-
-        if distance > 50:
-            return {"error": "There are no services available in the area."}
-        
-        print("Coordinates Checked ✅")
-    except ValueError:
-        return {"error": "Checking coordinates failed."}
-
 
     print("Checking business unit...")
     try:
@@ -827,69 +778,57 @@ async def check_work_area(data: utils.addressCheckToolRequest):
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
 
+    city = data.city.strip().lower()
+    state = data.state
+
+    # Validación rápida: estado permitido y ciudad en lista única
+    if state in VALID_STATES and city in CITIES:
+        print("Coordinates Checked In List✅")
+        return {"message": "City is in the working area (matched from predefined list)."}
+
+    # Fallback: geocodificación + cálculo de distancia
+    address = f"{data.street}, {data.city}, {data.country}"
+    if not address:
+        print("error: The direction is not valid.")
+        return {"error": "The direction is not valid."}
+
+    url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+    resp = requests.get(url_geocode)
+    if resp.status_code != 200:
+        print("error: no response from geocode api")
+        return {"error": "Failed to fetch geolocation data."}
+
+    json_data = resp.json()
+    if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
+        print("error: Address no found in geocode api")
+        return {"error": "The address received does not exist."}
+
+    expected_zip = json_data.get("standard", {}).get("postal")
+    client_zip = data.zip
+    expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
+    if expected_zip_clean and expected_zip_clean != client_zip:
+        print("error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
+        return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
+
     try:
-        lat, lon = None, None
-        address = f"{data.street}, {data.city}, {data.country}"
+        lat = float(json_data.get("latt"))
+        lon = float(json_data.get("longt"))
+    except (TypeError, ValueError):
+        print("error: The provided coordinates are not valid.")
+        return {"error": "The provided coordinates are not valid."}
 
-        if not address:
-            return {"error": "The direction is not valid."}
+    lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+    lat2, lon2 = math.radians(lat), math.radians(lon)
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    a = math.sin(delta_lat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(delta_lon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    distance = round(R * c, 2)
 
-        url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-        resp = requests.get(url_geocode)
-
-        if resp.status_code != 200:
-            return {"error": "Failed to fetch geolocation data."}
-
-        json_data = resp.json()
-
-        # Manejo de dirección inexistente
-        if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
-            return {"error": "The address received does not exist."}
-
-        expected_zip = json_data.get("standard", {}).get("postal")
-        client_zip = data.zip
-
-        # Extraer solo los primeros 5 dígitos del zip devuelto por la API
-        expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
-
-        print(f"Client ZIP: {client_zip}, Expected ZIP: {expected_zip_clean}")
-
-        if expected_zip_clean and expected_zip_clean != client_zip:
-            return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
-
-        lat = json_data.get("latt")
-        lon = json_data.get("longt")
-
-        try:
-            lat = float(lat)
-            lon = float(lon)
-        except ValueError:
-            return {"error": "The provided coordinates are not valid."}
-
-        if lat is None or lon is None:
-            return {"error": "Could not get address coordinates."}
-
-        lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
-        lat2, lon2 = math.radians(lat), math.radians(lon)
-
-        delta_lat = lat2 - lat1
-        delta_lon = lon2 - lon1
-
-        # Haversine formula
-        a = math.sin(delta_lat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2)**2
-        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-        distance = round(R * c, 2)
-        print(f"Distance: {distance} miles")
-
-        if distance > 50:
-            return {"error": "There are no services available in the area."}
-
-        print("Coordinates Checked ✅")
-        return {"message": "Address is in the working area."}
-
-    except ValueError:
-        return {"error": "Checking coordinates failed."}
+    if distance > 50:
+        print("error: There are no services available in the area.")
+        return {"error": "There are no services available in the area."}
+    return {"message": "Address is in the working area."}
 
 @app.post("/updateJobSummary")
 async def update_job_summary(data: utils.updateJobSummaryToolRequest):
@@ -950,8 +889,6 @@ async def update_job_summary(data: utils.updateJobSummaryToolRequest):
 
 @app.post("/checkAvailabilityOutbound")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
-    PO_BOX_SALEM = (42.775, -71.217)
-    R = 3958.8
     jobType = 5879699
     business_unit = 5878155
     request = data.args
