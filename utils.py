@@ -28,7 +28,6 @@ class Location(BaseModel):
     name: str = Field(..., description="Location name")
     address: Address = Field(..., description="Address of the location")
 
-
 class RequestArgs(BaseModel):
     name: str = Field(..., description="Name of the customer")
     address: str = Field(description="Full address of the customer, e.g., '123 Main St, City, Zip'")
@@ -90,31 +89,45 @@ class jobCreateToolRequest(ToolRequest):
 
 
 
-class ReScheduleData(BaseModel):
-    newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
+class FindAppointmentData(BaseModel):
     name: str = Field(..., description="Name of the customer")
+    number: str = Field(..., description="Phone number of the customer")
 
-class ReSchedulaDataToolRequest(ToolRequest):
-    args: ReScheduleData
+class FindAppointmentDataToolRequest(ToolRequest):
+    args: FindAppointmentData
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
+class ReScheduleDataTEST(BaseModel):
+    newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
+    jobTypeId: int = Field(..., description="ID of the job type to check availability for")
+    businessUnitId: int = Field(..., description="ID of the business unit to check availability for")
+    appointmentId: int = Field(..., description="ID of the appointment to be rescheduled")
+    employeeId: Optional[int] = Field(..., description="ID of the employee (technician) associated with the appointment")
+
+class ReSchedulaDataToolRequestTEST(ToolRequest):
+    args: ReScheduleDataTEST
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }
 
 
 
-class cancelJobAppointment(BaseModel):
-    name: str = Field(..., description="Name of the customer")
-    reasonId: int = Field(... , description="Id of the reason to cancel")
-    memo: str = Field(description="Memo")
+class cancelJobAppointmentTEST(BaseModel):
+    jobId: int = Field(..., description="ID of the job to cancel")
+    reasonId: int = Field(..., description="ID of the cancellation reason")
+    memo: str = Field(..., description="Notes or memo for the cancellation")
 
-class cancelJobAppointmentToolRequest(ToolRequest):
-    args: cancelJobAppointment
+class cancelJobAppointmentToolRequestTEST(ToolRequest):
+    args: cancelJobAppointmentTEST
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }
 
 
 class updateJobSummary(BaseModel):
+    number: str = Field(..., description="Phone number of the customer")
     name: str = Field(..., description="Name of the customer")
     info: str = Field(description="Summary")
 
@@ -151,6 +164,33 @@ class JobCreateRequestOutbound(BaseModel):
 
 class jobCreateToolRequestOutbound(ToolRequest):
     args: JobCreateRequestOutbound
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
+
+
+
+
+class ReScheduleData(BaseModel):
+    newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
+    name: str = Field(..., description="Name of the customer")
+
+class ReSchedulaDataToolRequest(ToolRequest):
+    args: ReScheduleData
+    model_config = {
+        "extra": "allow"  # Permite aceptar datos adicionales sin error
+    }
+
+
+
+class cancelJobAppointment(BaseModel):
+    name: str = Field(..., description="Name of the customer")
+    reasonId: int = Field(... , description="Id of the reason to cancel")
+    memo: str = Field(description="Memo")
+
+class cancelJobAppointmentToolRequest(ToolRequest):
+    args: cancelJobAppointment
     model_config = {
         "extra": "allow"  # Permite aceptar datos adicionales sin error
     }

@@ -38,7 +38,7 @@ CITIES = {
     "waltham", "watertown", "west springfield", "westfield", "weymouth", "winthrop",
     "woburn", "worcester", "bridgewater", "amherst",
     "berlin", "claremont", "concord", "dover", "franklin", "keene", "laconia",
-    "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth", "acton", "arlington", "atkinson", "derry", "hudson"
+    "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth", "acton", "arlington", "atkinson", "derry", "hudson", "windham"
 }
 
 VALID_STATES = {"MA", "NH", "New Hampshire", "Massachusetts"}
@@ -546,210 +546,223 @@ async def create_job(job_request: utils.jobCreateToolRequest):
         print(f"Request error: {str(e)}")
         return {"error": "Unexpected request error"}
 
-@app.post("/rescheduleAppointmentTimeAvailability")
-async def reschedule_appointment_time_availability (data: utils.ReSchedulaDataToolRequest):
-    print("Processing re scheduling time availability request...")
+@app.post("/findAppointment")
+async def find_appointment(data: utils.FindAppointmentDataToolRequest):
+    print("Processing findAppointment request...")
     data = data.args
     access_token = await get_access_token()
-    
-    customer_response = await get_customer(data.name)
 
+    # Step 1: Buscar cliente por teléfono, si no existe, por nombre
+    customer_response = await get_customer_by_phone(data.number)
     if isinstance(customer_response, dict) and "error" in customer_response:
-        print(f"Error fetching customer: {customer_response['error']}")
-        return customer_response
-    
+        print(f"Not found by phone: {customer_response['error']}. Searching by name...")
+        customer_response = await get_customer(data.name)
+    if isinstance(customer_response, dict) and "error" in customer_response:
+        return {"error": customer_response["error"]}
     customer_id = customer_response
 
-    print("Getting job data ...")
-    job_type_id = None
-    business_unit_id = None
+    # Step 2: Obtener todos los jobs agendados para ese cliente
+    print("Fetching scheduled jobs for customer...")
+    url_jobs = (
+        f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+        f"?customerId={customer_id}&jobStatus=Scheduled"
+    )
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+    resp_jobs = requests.get(url_jobs, headers=headers)
+    if resp_jobs.status_code != 200:
+        return {"error": "Failed to fetch jobs."}
+    jobs = resp_jobs.json().get("data", [])
+
+    # Step 3 & 4: Por cada job, buscar sus appointments agendados y combinar datos
+    combined = []
+    for job in jobs:
+        job_id = job.get("id")
+        business_unit_id = job.get("businessUnitId")
+        job_type_id = job.get("jobTypeId")
+        summary = job.get("summary", "")
+        job_id = job.get("id")
+        employeeId = job.get("jobGeneratedLeadSource", {}).get("employeeId")
+
+        print(f"Fetching appointments for job {job_id}...")
+        url_apps = (
+            f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
+            f"?jobId={job_id}&status=Scheduled"
+        )
+        resp_apps = requests.get(url_apps, headers=headers)
+        if resp_apps.status_code != 200:
+            continue
+
+        apps = resp_apps.json().get("data", [])
+        for a in apps:
+            # Convertir UTC -> hora local de Massachusetts
+            def to_eastern(ts: str) -> str:
+                if ts.endswith("Z"):
+                    ts = ts.replace("Z", "+00:00")
+                dt_utc = datetime.fromisoformat(ts)
+                return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+
+            start_local = to_eastern(a.get("start"))
+            end_local   = to_eastern(a.get("end"))
+
+            combined.append({
+                "jobId": job_id,
+                "businessUnitId": business_unit_id,
+                "jobTypeId": job_type_id,
+                "summary": summary,
+                "employeeId": employeeId,
+                "appointmentId": a.get("id"),
+                "start": start_local,
+                "end": end_local,
+            })
+    
+    print("Appointment found ✅")
+    return {"appointments": combined}
+
+@app.post("/rescheduleAppointmentTimeAvailabilityTEST")
+async def reschedule_appointment_time_availability(data: utils.ReSchedulaDataToolRequestTEST):
+    print("Processing re-scheduling availability request...")
+    # extraer args directos del agente de voz
+    data = data.args
+
+    # usar directamente los datos enviados por el agente
+    job_type_id = data.jobTypeId
+    business_unit_id = data.businessUnitId
+    desired_time = data.newSchedule
+
+    # validar que vengan ambos IDs
+    if not job_type_id or not business_unit_id:
+        return {"error": "Missing jobTypeId or businessUnitId in request."}
+
+    print(f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
     try:
-        url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+        slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
+        if slots_available:
+            return {"availableSlots": slots_available}
+        else:
+            print("No slots available.")
+            return {"availableSlots": []}
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting slots: {e}")
+        return {"error": "Error when requesting availability."}
+
+@app.post("/rescheduleAppointmentTEST")
+async def reschedule_appointment(data: utils.ReSchedulaDataToolRequestTEST):
+    print("Processing re-scheduling request...")
+    data = data.args
+    access_token = await get_access_token()
+
+    appointment_id = data.appointmentId
+    technician_id = data.employeeId
+    new_schedule = data.newSchedule
+
+    # 1. Unassign technician if provided
+    if technician_id:
+        tech_ids = technician_id if isinstance(technician_id, list) else [technician_id]
+        print(f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
+        url_unassign = (
+            f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}"
+            "/appointment-assignments/unassign-technicians"
+        )
         headers = {
             "Authorization": access_token,
             "ST-App-Key": APP_ID,
             "Content-Type": "application/json",
         }
-        response_jobs = requests.get(url_jobs, headers=headers)
-
-        if response_jobs.status_code == 200:
-            jobs_data_json = response_jobs.json()
-            if jobs_data_json and "data" in jobs_data_json and len(jobs_data_json["data"]) > 0:
-                job_type_id = jobs_data_json["data"][0].get("jobTypeId")
-                business_unit_id = jobs_data_json["data"][0].get("businessUnitId")
-                print(f"JOB DATA: {job_type_id, business_unit_id}")
-                print("Job achieved ✅")
-        else:
-            print("Error getting job data.")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting appointment id: {e}")
-        return {"error": "Error when making external request."}
-    
-    if job_type_id is None or business_unit_id is None:
-        return {"error": "The customer does not have any pending jobs."}
-
-    print("Getting slots availables...")
-    slots_availables = []
-    try:
-        slots_availables = await check_availability_time(data.newSchedule, business_unit_id, job_type_id)
-        if slots_availables:
-            return slots_availables
-        else:
-            print("No slots availables.")
-            return "No slots availables."
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting slots availables: {e}")
-        return {"error": "Error when making external request."}
-
-@app.post("/rescheduleAppointment")
-async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest): 
-    print("Processing re scheduling request...")
-    data = data.args
-    access_token = await get_access_token()
-    
-    customer_response = await get_customer(data.name)
-
-    if isinstance(customer_response, dict) and "error" in customer_response:
-        print(f"Error fetching customer: {customer_response['error']}")
-        return customer_response
-    
-    customer_id = customer_response
-    
-    print("Getting appointment id ...")
-    try:
-        print('Getting jobs ...')
-
-        url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-
-        response_jobs = requests.get(url_jobs, headers=headers)
-
-        if response_jobs.status_code == 200:
-            jobs_data_json = response_jobs.json()
-            if jobs_data_json and "data" in jobs_data_json and len(jobs_data_json["data"]) > 0:
-                appointment_id = jobs_data_json["data"][0].get("lastAppointmentId")
-                technician_id = jobs_data_json["data"][0]["jobGeneratedLeadSource"].get("employeeId")
-        else:
-            print("Error getting job data.")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting appointment id: {e}")
-        return {"error": "Error when making external request."}
-
-    if technician_id is not None:
-        print("Unassign technician...")
-        if not isinstance(technician_id, list):
-            technician_id = [technician_id]
-        url_unassign = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/appointment-assignments/unassign-technicians"
-        payload = {
+        unassign_payload = {
             "jobAppointmentId": appointment_id,
-            "technicianIds": technician_id
+            "technicianIds": tech_ids
         }
-        response_unassign = requests.patch(url_unassign, json=payload, headers=headers)
-        if response_unassign.status_code == 200:
-            print("Unassign technician request processed successfully ✅")
-    else:
-        print("No tecnician assingned to this job")
-
-    if not appointment_id:
-        return {"error": "No valid calendar was found for the client."}
-    
-    print("Rescheduling appointment...")
-    try:
-        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments/{appointment_id}/reschedule"
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-
-        start_time = datetime.fromisoformat(data.newSchedule)
-        end_time = start_time + timedelta(hours=3)
-        payload = {
-            "start": data.newSchedule,
-            "end": end_time.isoformat()     
-        }
-
-        # Realizar la solicitud PATCH
-        response = requests.patch(url, json=payload, headers=headers)
-            
-        # Devolver la respuesta de la API externa
-        if response.status_code == 200:
-            print("Reschedule request processed successfully ✅")
-            return ("Reschedule request processed successfully")
+        resp_unassign = requests.patch(url_unassign, json=unassign_payload, headers=headers)
+        if resp_unassign.status_code == 200:
+            print("Technician unassigned successfully ✅")
         else:
-            return {"error": f"Request error: {response.status_code}", "details": response.text}
-    except requests.exceptions.RequestException as e:
-        return {"error": "Error when making external request."}
+            print(f"Failed to unassign technician: {resp_unassign.text}")
 
-@app.post("/cancelAppointment")
-async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
+    # 2. Ensure the new_schedule string ends with "Z"
+    if not new_schedule.endswith("Z"):
+        new_schedule += "Z"
+
+    # 3. Convert from Massachusetts local time to UTC
+    start_utc = massachusetts_to_utc(new_schedule)
+
+    # 4. Calculate end_utc = start_utc + 3 hours
+    start_dt = datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
+    end_dt = start_dt + timedelta(hours=3)
+    end_utc = end_dt.isoformat().replace("+00:00", "Z")
+
+    # 5. Send the reschedule PATCH
+    print(f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
+    url_resch = (
+        f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}"
+        f"/appointments/{appointment_id}/reschedule"
+    )
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+    resch_payload = {
+        "start": start_utc,
+        "end": end_utc
+    }
+    resp = requests.patch(url_resch, json=resch_payload, headers=headers)
+
+    if resp.status_code == 200:
+        print("Reschedule request processed successfully ✅")
+        return {"status": "Reschedule request processed successfully"}
+    else:
+        return {
+            "error": f"Request error: {resp.status_code}",
+            "details": resp.text
+        }
+
+@app.post("/cancelAppointmentTEST")
+async def cancel_appointment(data: utils.cancelJobAppointmentToolRequestTEST):
     print("Processing cancellation request...")
     data = data.args
-    try:
-        customer_response = await get_customer(data.name)
 
-        if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"Error fetching customer: {customer_response['error']}")
-            return customer_response
-        
-        customer_id = customer_response
+    # extraer directamente los datos necesarios
+    job_id   = data.jobId
+    reason_id = data.reasonId
+    memo     = data.memo
 
-        # Obtener el jobId correspondiente al customerId
-        url_appointment = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments?&customerId={customer_id}"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-        print("Getting job id ...")
-        response_appointment = requests.get(url_appointment, headers=headers)
+    if not job_id:
+        return {"error": "Missing jobId in request."}
 
-        if response_appointment.status_code != 200:
-            return {"error": "Error obtaining reservations.", "details": response_appointment.text}
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
 
-        appointment_data_json = response_appointment.json()
-        job_id = appointment_data_json["data"][0]["jobId"]
-        print(f"Job ID: {job_id}")
+    # llamar al endpoint de cancelación
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
+    payload = {
+        "reasonId": reason_id,
+        "memo": memo
+    }
 
-        if not job_id:
-            print("Job ID not found")
-            return {"error": "A Job ID was not found for the customer."}
+    print(f"Cancelling job {job_id} with reason {reason_id}...")
+    resp = requests.put(url, headers=headers, json=payload)
+    print(f"External API responded: {resp.status_code}")
 
-        # Cancelar la cita
-        print("Processing cancel appointment request...")
-        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
+    if resp.status_code == 200:
+        # a veces el body viene vacío
+        if not resp.text.strip():
+            print("Job canceled successfully ✅")
+            return {"message": "Job canceled successfully"}
+        return resp.json()
+    elif resp.status_code == 404:
+        return {"error": "Job ID not found", "details": resp.json()}
+    else:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-        payload = {
-            "reasonId": data.reasonId,
-            "memo": data.memo
-        }
-
-        response = requests.put(url, headers=headers, json=payload)
-        print(f"Response of the API external: {response.status_code}")
-
-        # Manejo de errores específicos
-        if response.status_code == 404:
-            return {"error": "Job ID not found.", "details": response.json()}
-
-        if response.status_code == 200:
-            if not response.text.strip():  # Si la respuesta está vacía
-                print("Job appointmet canceled successfully ✅")
-                return {"message": "Job appointment canceled successfully."}
-            return response.json()
-
-        return {"error": f"Error in request: {response.status_code}", "details": response.text}
-    except Exception as e:
-        print(f"Exception while processing cancel job appointment: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/getTime")
+app.post("/getTime")
 async def get_current_boston_time():
     print("Getting current time...")
     utc_now = datetime.now(timezone.utc)
@@ -998,3 +1011,211 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
 #dowload pytz: pip install pytz
 #dowload pandas: pip install pandas
 #start the server: fastapi dev main.py
+
+
+
+
+
+
+@app.post("/rescheduleAppointmentTimeAvailability")
+async def reschedule_appointment_time_availability (data: utils.ReSchedulaDataToolRequest):
+    print("Processing re scheduling time availability request...")
+    data = data.args
+    access_token = await get_access_token()
+    
+    customer_response = await get_customer(data.name)
+
+    if isinstance(customer_response, dict) and "error" in customer_response:
+        print(f"Error fetching customer: {customer_response['error']}")
+        return customer_response
+    
+    customer_id = customer_response
+
+    print("Getting job data ...")
+    job_type_id = None
+    business_unit_id = None
+    try:
+        url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        response_jobs = requests.get(url_jobs, headers=headers)
+
+        if response_jobs.status_code == 200:
+            jobs_data_json = response_jobs.json()
+            if jobs_data_json and "data" in jobs_data_json and len(jobs_data_json["data"]) > 0:
+                job_type_id = jobs_data_json["data"][0].get("jobTypeId")
+                business_unit_id = jobs_data_json["data"][0].get("businessUnitId")
+                print(f"JOB DATA: {job_type_id, business_unit_id}")
+                print("Job achieved ✅")
+        else:
+            print("Error getting job data.")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting appointment id: {e}")
+        return {"error": "Error when making external request."}
+    
+    if job_type_id is None or business_unit_id is None:
+        return {"error": "The customer does not have any pending jobs."}
+
+    print("Getting slots availables...")
+    slots_availables = []
+    try:
+        slots_availables = await check_availability_time(data.newSchedule, business_unit_id, job_type_id)
+        if slots_availables:
+            return slots_availables
+        else:
+            print("No slots availables.")
+            return "No slots availables."
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting slots availables: {e}")
+        return {"error": "Error when making external request."}
+
+@app.post("/rescheduleAppointment")
+async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest): 
+    print("Processing re scheduling request...")
+    data = data.args
+    access_token = await get_access_token()
+    
+    customer_response = await get_customer(data.name)
+
+    if isinstance(customer_response, dict) and "error" in customer_response:
+        print(f"Error fetching customer: {customer_response['error']}")
+        return customer_response
+    
+    customer_id = customer_response
+    
+    print("Getting appointment id ...")
+    try:
+        print('Getting jobs ...')
+
+        url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        response_jobs = requests.get(url_jobs, headers=headers)
+
+        if response_jobs.status_code == 200:
+            jobs_data_json = response_jobs.json()
+            if jobs_data_json and "data" in jobs_data_json and len(jobs_data_json["data"]) > 0:
+                appointment_id = jobs_data_json["data"][0].get("lastAppointmentId")
+                technician_id = jobs_data_json["data"][0]["jobGeneratedLeadSource"].get("employeeId")
+        else:
+            print("Error getting job data.")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting appointment id: {e}")
+        return {"error": "Error when making external request."}
+
+    if technician_id is not None:
+        print("Unassign technician...")
+        if not isinstance(technician_id, list):
+            technician_id = [technician_id]
+        url_unassign = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/appointment-assignments/unassign-technicians"
+        payload = {
+            "jobAppointmentId": appointment_id,
+            "technicianIds": technician_id
+        }
+        response_unassign = requests.patch(url_unassign, json=payload, headers=headers)
+        if response_unassign.status_code == 200:
+            print("Unassign technician request processed successfully ✅")
+    else:
+        print("No tecnician assingned to this job")
+
+    if not appointment_id:
+        return {"error": "No valid calendar was found for the client."}
+    
+    print("Rescheduling appointment...")
+    try:
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments/{appointment_id}/reschedule"
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        start_time = datetime.fromisoformat(data.newSchedule)
+        end_time = start_time + timedelta(hours=3)
+        payload = {
+            "start": data.newSchedule,
+            "end": end_time.isoformat()     
+        }
+
+        # Realizar la solicitud PATCH
+        response = requests.patch(url, json=payload, headers=headers)
+            
+        # Devolver la respuesta de la API externa
+        if response.status_code == 200:
+            print("Reschedule request processed successfully ✅")
+            return ("Reschedule request processed successfully")
+        else:
+            return {"error": f"Request error: {response.status_code}", "details": response.text}
+    except requests.exceptions.RequestException as e:
+        return {"error": "Error when making external request."}
+
+@app.post("/cancelAppointment")
+async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
+    print("Processing cancellation request...")
+    data = data.args
+    try:
+        customer_response = await get_customer(data.name)
+
+        if isinstance(customer_response, dict) and "error" in customer_response:
+            print(f"Error fetching customer: {customer_response['error']}")
+            return customer_response
+        
+        customer_id = customer_response
+
+        # Obtener el jobId correspondiente al customerId
+        url_appointment = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments?&customerId={customer_id}"
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        print("Getting job id ...")
+        response_appointment = requests.get(url_appointment, headers=headers)
+
+        if response_appointment.status_code != 200:
+            return {"error": "Error obtaining reservations.", "details": response_appointment.text}
+
+        appointment_data_json = response_appointment.json()
+        job_id = appointment_data_json["data"][0]["jobId"]
+        print(f"Job ID: {job_id}")
+
+        if not job_id:
+            print("Job ID not found")
+            return {"error": "A Job ID was not found for the customer."}
+
+        # Cancelar la cita
+        print("Processing cancel appointment request...")
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
+
+        payload = {
+            "reasonId": data.reasonId,
+            "memo": data.memo
+        }
+
+        response = requests.put(url, headers=headers, json=payload)
+        print(f"Response of the API external: {response.status_code}")
+
+        # Manejo de errores específicos
+        if response.status_code == 404:
+            return {"error": "Job ID not found.", "details": response.json()}
+
+        if response.status_code == 200:
+            if not response.text.strip():  # Si la respuesta está vacía
+                print("Job appointmet canceled successfully ✅")
+                return {"message": "Job appointment canceled successfully."}
+            return response.json()
+
+        return {"error": f"Error in request: {response.status_code}", "details": response.text}
+    except Exception as e:
+        print(f"Exception while processing cancel job appointment: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
