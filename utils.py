@@ -103,8 +103,8 @@ class ReScheduleDataTEST(BaseModel):
     newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
     jobTypeId: int = Field(..., description="ID of the job type to check availability for")
     businessUnitId: int = Field(..., description="ID of the business unit to check availability for")
-    appointmentId: int = Field(..., description="ID of the appointment to be rescheduled")
-    employeeId: Optional[int] = Field(..., description="ID of the employee (technician) associated with the appointment")
+    appointmentId: Optional[int] = Field(None, description="ID of the appointment to be rescheduled")
+    employeeId: Optional[int] = Field(None, description="ID of the employee (technician) associated with the appointment")
 
 class ReSchedulaDataToolRequestTEST(ToolRequest):
     args: ReScheduleDataTEST
