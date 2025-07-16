@@ -929,6 +929,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
 #@app.post("/createJobOutbound")
 async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
+
     print("Creating job...")
     campaignId = 82014707
     job_request = job_request.args
@@ -1008,11 +1009,7 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
         raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
 
 
-#dowload fastapi: pip install "fastapi[standard]"
-#dowload dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
-#dowload pytz: pip install pytz
-#dowload pandas: pip install pandas
-#start the server: fastapi dev main.py
+
     print("Processing cancellation request...")
     data = data.args
     try:
@@ -1072,3 +1069,10 @@ async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
     except Exception as e:
         print(f"Exception while processing cancel job appointment: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+#download fastapi: pip install "fastapi[standard]"
+#download dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
+#download pytz: pip install pytz
+#download pandas: pip install pandas
+#start the server: fastapi dev main.py
