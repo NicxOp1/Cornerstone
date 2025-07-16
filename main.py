@@ -764,7 +764,7 @@ async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
     else:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-app.post("/getTime")
+@app.post("/getTime")
 async def get_current_boston_time():
     print("Getting current time...")
     utc_now = datetime.now(timezone.utc)
