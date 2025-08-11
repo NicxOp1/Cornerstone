@@ -388,7 +388,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     print("Processing checkWorkArea request... 🔄")
 
     if isinstance(data.args, dict):
-        args_obj = utils.AddressCheckToolRequest.parse_obj(data.args)
+        args_obj = utils.Address.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -490,8 +490,9 @@ async def find_customer(data: utils.FindCustomerToolRequest):
 
 @app.post("/getCustomerLocations")
 async def get_customer_locations(data: utils.FindAppointmentToolRequest):
+
     if isinstance(data.args, dict):
-        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+        args_obj = utils.FindAppointmentData.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -541,7 +542,7 @@ async def create_location(data: utils.CreateLocationToolRequest):
     print("Processing createLocation request... 🔄")
 
     if isinstance(data.args, dict):
-        args_obj = utils.CreateLocationToolRequest.parse_obj(data.args)
+        args_obj = utils.CreateLocationRequest.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -582,7 +583,7 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
     print("Processing createCustomer request... 🔄")
 
     if isinstance(data.args, dict):
-        args_obj = utils.CreateCustomerToolRequest.parse_obj(data.args)
+        args_obj = utils.CustomerCreateRequest.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -611,7 +612,7 @@ async def check_availability(data: utils.BookingRequest):
     print("Processing checkAvailability request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.BookingRequest.parse_obj(data.args)
+        args_obj = utils.RequestArgs.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -665,7 +666,7 @@ async def create_job(data: utils.JobCreateToolRequest):
     print("Processing createJob request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.JobCreateToolRequest.parse_obj(data.args)
+        args_obj = utils.JobCreateRequest.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -731,7 +732,7 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findAppointments request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+        args_obj = utils.FindAppointmentData.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -816,7 +817,7 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findPastAppointments request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+        args_obj = utils.FindAppointmentData.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -906,7 +907,7 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
     print("Processing rescheduleAppointmentTimeAvailability request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.ReScheduleToolRequest.parse_obj(data.args)
+        args_obj = utils.ReScheduleData.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -940,7 +941,7 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     print("Processing rescheduleAppointment request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.ReScheduleToolRequest.parse_obj(data.args)
+        args_obj = utils.ReScheduleData.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -1021,7 +1022,7 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
     print("Processing cancelAppointment request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.CancelJobAppointmentToolRequest.parse_obj(data.args)
+        args_obj = utils.CancelJobAppointment.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -1073,7 +1074,7 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     print("Processing updateJobSummary request... 🔄")
     
     if isinstance(data.args, dict):
-        args_obj = utils.UpdateJobSummaryToolRequest.parse_obj(data.args)
+        args_obj = utils.UpdateJobSummary.parse_obj(data.args)
     else:
         args_obj = data.args
 
@@ -1139,7 +1140,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     business_unit = 5878155
     
     if isinstance(data.args, dict):
-        args_obj = utils.BookingRequestOutbound.parse_obj(data.args)
+        args_obj = utils.RequestArgsOutbound.parse_obj(data.args)
     else:
         args_obj = data.args
 
