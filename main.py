@@ -448,9 +448,13 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
 @app.post("/findCustomer")
 async def find_customer(data: utils.FindCustomerToolRequest):
     print("Processing findCustomer request... 🔄")
-    body = data.json()
-    print("Raw body:", body)
-    phone = data.args.number
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.CustomerFindRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    phone = args_obj.number
 
     try:
         url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?phone={phone}"
