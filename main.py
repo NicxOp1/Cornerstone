@@ -448,7 +448,8 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
 @app.post("/findCustomer")
 async def find_customer(data: utils.FindCustomerToolRequest):
     print("Processing findCustomer request... 🔄")
-    print(f"data: {data}")
+    body = data.json()
+    print("Raw body:", body)
     phone = data.args.number
 
     try:
