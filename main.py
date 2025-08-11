@@ -277,8 +277,6 @@ async def check_availability_time(time, business_units, job_type):
         starts_on_or_after = current_start.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         ends_on_or_before = current_end.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        print(f"Start: {starts_on_or_after}, End: {ends_on_or_before}")
-
         payload = {
             "startsOnOrAfter": starts_on_or_after,
             "endsOnOrBefore": ends_on_or_before,
@@ -387,8 +385,15 @@ async def get_current_boston_time():
 
 @app.post("/checkWorkArea")
 async def check_work_area(data: utils.AddressCheckToolRequest):
-    data = data.args
     print("Processing checkWorkArea request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.AddressCheckToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     PO_BOX_SALEM = (42.775, -71.217)
     R = 3958.8
 
@@ -448,7 +453,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
 @app.post("/findCustomer")
 async def find_customer(data: utils.FindCustomerToolRequest):
     print("Processing findCustomer request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.CustomerFindRequest.parse_obj(data.args)
     else:
@@ -485,7 +490,13 @@ async def find_customer(data: utils.FindCustomerToolRequest):
 
 @app.post("/getCustomerLocations")
 async def get_customer_locations(data: utils.FindAppointmentToolRequest):
-    customer_id = data.args.customerId
+    if isinstance(data.args, dict):
+        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    customer_id = args_obj.customerId
+
     print(f"Getting locations for customer ID: {customer_id}... 🔄")
 
     try:
@@ -528,6 +539,14 @@ async def get_customer_locations(data: utils.FindAppointmentToolRequest):
 @app.post("/createLocation")
 async def create_location(data: utils.CreateLocationToolRequest):
     print("Processing createLocation request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.CreateLocationToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     access_token = await get_access_token()
     headers = {
         "Authorization": access_token,
@@ -536,9 +555,9 @@ async def create_location(data: utils.CreateLocationToolRequest):
     }
 
     payload = {
-        "customerId": data.args.customerId,
-        "name": data.args.location.name,
-        "address": data.args.location.address.model_dump()
+        "customerId": data.customerId,
+        "name": data.location.name,
+        "address": data.location.address.model_dump()
     }
 
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
@@ -561,8 +580,16 @@ async def create_location(data: utils.CreateLocationToolRequest):
 @app.post("/createCustomer")
 async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
     print("Processing createCustomer request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.CreateCustomerToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     try:
-        response = await create_customer(data.args)
+        response = await create_customer(data)
 
         if "error" in response:
             print(f"{response['error']}.")
@@ -582,7 +609,14 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 @app.post("/checkAvailability")
 async def check_availability(data: utils.BookingRequest):
     print("Processing checkAvailability request... 🔄")
-    request = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.BookingRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     access_token = await get_access_token()
     headers = {
             "Authorization": access_token,
@@ -595,17 +629,16 @@ async def check_availability(data: utils.BookingRequest):
         url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
         response_jobTypes = requests.get(url_jobTypes, headers=headers)
 
-        print(f"Job types response status: {response_jobTypes.status_code}")
         if response_jobTypes.status_code == 200:
             job_types_json = response_jobTypes.json()
             job_types = {job_type["id"]: job_type["businessUnitIds"] for job_type in job_types_json["data"]}
 
-        business_units = job_types.get(request.jobTypeId, None)
+        business_units = job_types.get(data.jobTypeId, None)
 
         if business_units:
-            print(f"Business Units for Job Type {request.jobTypeId}: {business_units}")
+            pass
         else:
-            print(f"Job Type {request.jobTypeId} not found in response.")
+            print(f"Job Type {data.jobTypeId} not found in response.")
         
         print("Business Unit Checked ✅")
     except ValueError:
@@ -614,7 +647,7 @@ async def check_availability(data: utils.BookingRequest):
     available_slots = []
 
     try:
-        available_slots = await check_availability_time(request.time, business_units, request.jobTypeId)
+        available_slots = await check_availability_time(data.time, business_units, data.jobTypeId)
 
         if not available_slots:
             print("No available slots found.")
@@ -630,7 +663,13 @@ async def check_availability(data: utils.BookingRequest):
 @app.post("/createJob")
 async def create_job(data: utils.JobCreateToolRequest):
     print("Processing createJob request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.JobCreateToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
 
     try:
         access_token = await get_access_token()
@@ -690,7 +729,14 @@ async def create_job(data: utils.JobCreateToolRequest):
 @app.post("/findAppointments")
 async def find_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findAppointments request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     customer_id = data.customerId
     print(f"Using provided customerId: {customer_id}")
 
@@ -768,7 +814,14 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
 @app.post("/findPastAppointments")
 async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findPastAppointments request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.FindAppointmentToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     customer_id = data.customerId
 
     print(f"Using provided customerId: {customer_id}")
@@ -851,7 +904,13 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
 @app.post("/rescheduleAppointmentTimeAvailability")
 async def reschedule_appointment_time_availability(data: utils.ReScheduleToolRequest):
     print("Processing rescheduleAppointmentTimeAvailability request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.ReScheduleToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
 
     job_type_id = data.jobTypeId
     business_unit_id = data.businessUnitId
@@ -879,7 +938,14 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
 @app.post("/rescheduleAppointment")
 async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     print("Processing rescheduleAppointment request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.ReScheduleToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+    
     access_token = await get_access_token()
 
     appointment_id = data.appointmentId
@@ -953,7 +1019,13 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
 @app.post("/cancelAppointment")
 async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
     print("Processing cancelAppointment request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.CancelJobAppointmentToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
 
     # extraer directamente los datos necesarios
     job_id = data.jobId
@@ -999,7 +1071,14 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
 @app.post("/updateJobSummary")
 async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     print("Processing updateJobSummary request... 🔄")
-    data = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.UpdateJobSummaryToolRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
+
     job_id = data.jobId
     info = data.info
 
@@ -1058,7 +1137,13 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     print("Processing checkAvailabilityOutbound request... 🔄")
     jobType = 5879699
     business_unit = 5878155
-    request = data.args
+    
+    if isinstance(data.args, dict):
+        args_obj = utils.BookingRequestOutbound.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    data = args_obj
 
     await get_technicians_by_businessUnitId(5878155)
 
@@ -1067,7 +1152,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     available_slots = []
 
     try:
-        available_slots = await check_availability_time(request.time, business_unit, jobType)
+        available_slots = await check_availability_time(data.time, business_unit, jobType)
 
         if not available_slots:
             print("No available slots found.")
