@@ -9,6 +9,7 @@ import os
 import json
 import pytz
 import math
+import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,20 +29,19 @@ MAPS_AUTH= os.getenv("MAPS_AUTH")
 app = FastAPI()
 
 CITIES = {
-    "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree",
-    "brockton", "cambridge", "chelsea", "chicopee", "easthampton", "everett", "fall river",
-    "fitchburg", "framingham", "franklin", "gardner", "gloucester", "greenfield",
-    "haverhill", "holyoke", "lawrence", "leominster", "lowell", "lynn", "malden",
-    "marlborough", "medford", "melrose", "methuen", "new bedford", "newburyport",
-    "newton", "north adams", "northampton", "palmer", "peabody", "pittsfield", "quincy",
-    "randolph", "revere", "salem", "somerville", "southbridge", "springfield", "taunton",
-    "waltham", "watertown", "west springfield", "westfield", "weymouth", "winthrop",
-    "woburn", "worcester", "bridgewater", "amherst",
-    "berlin", "claremont", "concord", "dover", "franklin", "keene", "laconia",
-    "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth", "acton", "arlington", "atkinson", "derry", "hudson", "windham"
+    "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree", "brockton", "cambridge", "chelsea",
+    "chicopee", "easthampton", "everett", "fall river", "fitchburg", "framingham", "franklin", "gardner", "gloucester", "greenfield",
+    "haverhill", "holyoke", "lawrence", "leominster", "lowell", "lynn", "malden", "marlborough", "medford", "melrose",
+    "methuen", "new bedford", "newburyport", "newton", "north adams", "northampton", "palmer", "peabody", "pittsfield", "quincy",
+    "randolph", "revere", "salem", "somerville", "southbridge", "springfield", "taunton", "waltham", "watertown", "west springfield",
+    "westfield", "weymouth", "winthrop", "woburn", "worcester", "bridgewater", "amherst", "berlin", "claremont", "concord",
+    "dover", "franklin", "keene", "laconia", "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth",
+    "acton", "arlington", "atkinson", "derry", "hudson", "windham", "hampton"
 }
 
-VALID_STATES = {"MA", "NH", "New Hampshire", "Massachusetts"}
+VALID_STATES = {
+    "ma", "nh", "new hampshire", "massachusetts"
+}
 
 # Auxiliary functions
 async def get_access_token():
@@ -71,40 +71,6 @@ def massachusetts_to_utc(dt_str: str) -> str:
     dt_utc = dt_eastern.astimezone(pytz.utc)
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-async def get_customer(name):
-    print("Getting customer by name...")
-    try:
-        url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?name={name}"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-        response_customers = requests.get(url_customers, headers=headers)
-
-        if response_customers.status_code == 200:
-            customers_data_json = response_customers.json()
-            
-            if not customers_data_json.get("data"):
-                print("Error: No customers found by name.")
-                return {"error": "Customer not found by name."}
-
-            for customer in customers_data_json["data"]:
-                if customer.get("name") == name:
-                    print("Customer found by name✅")
-                    return customer.get("id")
-            
-            print("Error: No exact match for customer name.")
-            return {"error": "Customer not found by name."}
-
-        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
-        return {"error": f"Unexpected response status: {response_customers.status_code}"}
-    
-    except requests.exceptions.RequestException as e:
-        print(f"Error getting client: {e}")
-        return {"error": "Error when making external request."}
-
 async def get_customer_by_phone(phone):
     print("Getting customer by phone...")
     try:
@@ -124,9 +90,15 @@ async def get_customer_by_phone(phone):
                 print("Error: No customers found by phone.")
                 return {"error": "Customer not found by phone."}
 
-            customer = customers_data_json["data"][0]
+            print(customers_data_json["data"][0])
+            print(customers_data_json["data"][1])
+            customer_data = customers_data_json["data"][0]
+            customer = {
+                "id": customer_data.get("id"),
+                "name": customer_data.get("name")
+            }
             print("Customer found by phone✅")
-            return customer.get("id")
+            return customer
 
         print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
@@ -136,6 +108,8 @@ async def get_customer_by_phone(phone):
         return {"error": "Error when making external request."}
 
 async def create_customer(customer: utils.CustomerCreateRequest):
+    print("Creating customer ...")
+
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers"
     access_token = await get_access_token()
     headers = {
@@ -144,15 +118,16 @@ async def create_customer(customer: utils.CustomerCreateRequest):
         "Content-Type": "application/json",
     }
 
-    print("Creating customer ...")
     try:
         if not customer.name or not customer.number or not customer.email:
+            print("Error: Customer name, number, and email are required.")
             return {"error": "Customer name, number, and email are required."}
 
         # Definir la dirección si no está completa
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
         else:
+            print("Error: Customer location is missing.")
             return {"error": "Customer location is missing."}
 
         if hasattr(location, 'address') and location.address:
@@ -196,6 +171,7 @@ async def create_customer(customer: utils.CustomerCreateRequest):
         location_id = data.get("locations", [{}])[0].get("id")
 
         if not customer_id or not location_id:
+            print("Error: Customer or Location ID missing in API response.")
             return {"error": "Customer or Location ID missing in API response."}
         
         if response.status_code == 200:
@@ -212,11 +188,13 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
             # Primero, crea el contacto con el número móvil si está disponible
             if customer.number:
+                clean_number = re.sub(r"\D", "", customer.number)  # Elimina espacios, guiones, paréntesis, etc.
+                
                 contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
                 mobile_payload = {
-                    "type": "MobilePhone",  # Tipo: móvil
-                    "value": customer.number,  # El número móvil
-                    "memo": "Customer phone number"  # (Opcional) Nota descriptiva
+                    "type": "MobilePhone",
+                    "value": clean_number,
+                    "memo": "Customer phone number"
                 }
 
                 response_mobile = requests.post(contact_url, headers=headers, json=mobile_payload)
@@ -253,85 +231,89 @@ async def create_customer(customer: utils.CustomerCreateRequest):
                     detail=f"Failed to create customer: {response.text}",
                 )
             
-            return {"customer_id": customer_id, "location_id": location_id}
+            print("Customer created successfully with contact data added ✅")
+            return {"customerId": customer_id, "locationId": location_id}
     except ValueError:
         print({"error": "Failed to create customer."})
 
 async def check_availability_time(time, business_units, job_type):
     print("Checking availability time...")
-    
-    available_slots = []
 
     if isinstance(business_units, int):
         business_units = [business_units]
     elif isinstance(business_units, list):
         business_units = [int(bu) for bu in business_units]
 
+    # Parsear tiempo inicial
+    if "Z" in time:
+        time = time.replace("Z", "+00:00")
+
+    time_parts = time.split('T')
+    date_parts = time_parts[0].split('-')
+    date_parts[2] = date_parts[2].zfill(2)
+    corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
+
     try:
-        
-        if "Z" in time:
-            time = time.replace("Z", "+00:00")
+        start_time = datetime.fromisoformat(corrected_time)
+    except ValueError:
+        print(f"Invalid time format: {corrected_time}")
+        return []
 
-        starts_on_or_after = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
-        
-        # Corregir el formato del día si es necesario (eliminando ceros innecesarios en el día)
-        time_parts = time.split('T')
-        date_parts = time_parts[0].split('-')
-        
-        # Asegurar que el día tenga siempre dos dígitos
-        date_parts[2] = date_parts[2].zfill(2)  
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
 
-        corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
-        
-        try:
-            start_time = datetime.fromisoformat(corrected_time)
-        except ValueError:
-            print(f"Invalid time format: {corrected_time}")
-            return (f"Invalid time format: {corrected_time}")
+    # Intentos (máx 5), sumando 7 días cada vez
+    for attempt in range(5):
+        print(f"Attempt {attempt + 1}/5...")
 
-        # Debug: Verifica las fechas generadas
-        print(f"Start Time: {start_time}, Start DateTime: {starts_on_or_after}")
+        current_start = start_time + timedelta(days=attempt * 7)
+        current_end = current_start + timedelta(days=14)
+        current_end = current_end.replace(hour=23, minute=59, second=0, microsecond=0)
 
-        end_time = start_time + timedelta(days=7)
-        end_time = end_time.replace(hour=23, minute=59, second=0, microsecond=0)
-        end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+        starts_on_or_after = current_start.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        ends_on_or_before = current_end.strftime('%Y-%m-%dT%H:%M:%SZ')
 
-        # Debug: Verifica la fecha final
-        print(f"End Time: {end_time}, End DateTime: {end_time_str}")
+        print(f"Start: {starts_on_or_after}, End: {ends_on_or_before}")
 
-        url_capacity = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity"
-        
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
         payload = {
             "startsOnOrAfter": starts_on_or_after,
-            "endsOnOrBefore": end_time_str,
+            "endsOnOrBefore": ends_on_or_before,
             "businessUnitIds": business_units,
             "jobTypeId": job_type,
             "skillBasedAvailability": True
         }
 
-        response_capacity = requests.post(url_capacity, headers=headers, json=payload)
+        try:
+            response = requests.post(
+                f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
+                headers=headers,
+                json=payload
+            )
 
-        if response_capacity.status_code == 200:
-            print("Availability Time Checked ✅")
-            response_capacity_json = response_capacity.json()
+            if response.status_code == 200:
+                data = response.json()
+                slots = [
+                    {"start": slot["start"], "end": slot["end"]}
+                    for slot in data.get("availabilities", []) if slot.get("isAvailable")
+                ]
 
-            available_slots = [
-                {"start": slot["start"], "end": slot["end"]}
-                for slot in response_capacity_json.get("availabilities", []) if slot.get("isAvailable")
-            ]
-        else:
-            print(f"Error in response: {response_capacity.status_code}, {response_capacity.text}")
-    except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        print({"error": "Checking availability time failed."})
-    
-    return available_slots
+                if slots:
+                    print("Checking availability time completed ✅")
+                    return slots
+                else:
+                    print(f"No slots on attempt {attempt + 1}, retrying...")
+            else:
+                print(f"❌ Error in API response: {response.status_code} {response.text}")
+
+        except Exception as e:
+            print(f"❌ Exception occurred: {str(e)}")
+
+    print("No available slots found after 5 attempts.")
+    return []
 
 async def get_technicians_by_businessUnitId(businessUnitId):
     print(f"Getting technicians for Business Unit ID: {businessUnitId}...")
@@ -373,42 +355,234 @@ async def get_technicians_by_businessUnitId(businessUnitId):
         return {"error": "Checking technicians by business unit failed."}
 
 
+
 # Endpoints
 @app.get("/")
 def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
 
-@app.post("/checkAvailability")
-async def check_availability(data: utils.BookingRequest):
-    request = data.args
-    print("Checking availability...")
+@app.post("/getTime")
+async def get_current_boston_time():
+    print("Processing getTime request... 🔄")
+    utc_now = datetime.now(timezone.utc)
 
-    print("Checking if is customer...")
+    # Hora de Boston (Eastern Time - EST/EDT)
+    boston_offset = timedelta(hours=-5)  # UTC-5 (EST) por defecto
+    boston_time = utc_now + boston_offset
+
+    # Verificar si es horario de verano (DST)
+    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)  # Segundo domingo de marzo
+    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)  # Primer domingo de noviembre
+
+    if start_dst <= utc_now < end_dst:
+        boston_time += timedelta(hours=1)  # UTC-4 en horario de verano (EDT)
+
+    print(f"Current UTC time: {utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+    print(f"Current Boston time: {boston_time.strftime('%Y-%m-%dT%H:%M:%S')}")
+
+    print("getTime request completed ✅")
+
+    return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
+
+@app.post("/checkWorkArea")
+async def check_work_area(data: utils.AddressCheckToolRequest):
+    data = data.args
+    print("Processing checkWorkArea request... 🔄")
+    PO_BOX_SALEM = (42.775, -71.217)
+    R = 3958.8
+
+    city = data.city.strip().lower()
+    state = data.state.strip().lower()
+
+    # Validación rápida: estado permitido y ciudad en lista única
+    if state in VALID_STATES and city in CITIES:
+        print("Coordinates Checked In List ✅")
+        return {"message": "City is in the working area (matched from predefined list)."}
+
+    # Fallback: geocodificación + cálculo de distancia
+    address = f"{data.street}, {data.city}, {data.country}"
+    if not address:
+        print("error: The direction is not valid.")
+        return {"error": "The direction is not valid."}
+
+    url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+    resp = requests.get(url_geocode)
+    if resp.status_code != 200:
+        print("error: no response from geocode api")
+        return {"error": "Failed to fetch geolocation data."}
+
+    json_data = resp.json()
+    if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
+        print("error: Address no found in geocode api")
+        return {"error": "The address received does not exist."}
+
+    expected_zip = json_data.get("standard", {}).get("postal")
+    client_zip = data.zip
+    expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
+    if expected_zip_clean and expected_zip_clean != client_zip:
+        print("error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
+        return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
+
     try:
-        url_customer = f"https://api.servicetitan.io/crm/v2/tenant/488267682/customers?name={request.name}"
+        lat = float(json_data.get("latt"))
+        lon = float(json_data.get("longt"))
+    except (TypeError, ValueError):
+        print("error: The provided coordinates are not valid.")
+        return {"error": "The provided coordinates are not valid."}
+
+    lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
+    lat2, lon2 = math.radians(lat), math.radians(lon)
+    delta_lat = lat2 - lat1
+    delta_lon = lon2 - lon1
+    a = math.sin(delta_lat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(delta_lon/2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    distance = round(R * c, 2)
+
+    if distance > 50:
+        print("error: There are no services available in the area.")
+        return {"error": "There are no services available in the area."}
+    print("checkWorkArea request completed ✅")
+    return {"message": "Address is in the working area."}
+
+@app.post("/findCustomer")
+async def find_customer(data: utils.FindCustomerToolRequest):
+    print("Processing findCustomer request... 🔄")
+    phone = data.args.number
+
+    try:
+        url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?phone={phone}"
         access_token = await get_access_token()
         headers = {
             "Authorization": access_token,
             "ST-App-Key": APP_ID,
             "Content-Type": "application/json",
         }
-        response_customer = requests.get(url_customer, headers=headers)
-        print(f"Customer response status: {response_customer.status_code}")
-        if response_customer.status_code == 200:
-            customer_info_json = response_customer.json()
+        response_customers = requests.get(url_customers, headers=headers)
+        if response_customers.status_code == 200:
+            customers_data_json = response_customers.json()
+            customers_list = customers_data_json.get("data", [])
+            if not customers_list:
+                print("No customers found by phone.")
+                return {"error": "No customers found by phone."}
+            customers = [
+                {"customerId": c.get("id"), "customerName": c.get("name")}
+                for c in customers_list
+            ]
+            print(f"Found {len(customers)} customers by phone ✅")
+            return customers
+        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        return {"error": f"Unexpected response status: {response_customers.status_code}"}
+    except requests.exceptions.RequestException as e:
+        print(f"Error getting customers: {e}")
+        return {"error": "Error when making external request."}
 
-        # Verify "data" contains elements
-        if "data" in customer_info_json and len(customer_info_json["data"]) > 0:
-            if customer_info_json["data"][0]["name"] == request.name:
-                request.isCustomer = True
-                print("Is Customer")
-            else:
-                request.isCustomer = False
-                print("Not Customer")
-        print("Customer Checked ✅")
-    except ValueError:
-        return {"error": "Cheking customer failed."}
+@app.post("/getCustomerLocations")
+async def get_customer_locations(data: utils.FindAppointmentToolRequest):
+    customer_id = data.args.customerId
+    print(f"Getting locations for customer ID: {customer_id}... 🔄")
+
+    try:
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+        url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
+        response_location = requests.get(url_location, headers=headers)
+
+        if response_location.status_code == 200:
+            locations_data = response_location.json().get("data", [])
+            if not locations_data:
+                return {"error": "No locations found for this customer."}
+
+            locations = []
+            for loc in locations_data:
+                addr = loc.get("address", {})
+                formatted_address = f"{addr.get('street', '')}, {addr.get('city', '')}, {addr.get('state', '')}".strip(", ")
+                locations.append({
+                    "locationId": loc.get("id"),
+                    "locationAddress": formatted_address
+                })
+
+            print(f"Locations found: {len(locations)} ✅")
+            return {
+                "customerId": customer_id,
+                "locations": locations
+            }
+        else:
+            print(f"Failed to get locations: {response_location.status_code} - {response_location.text}")
+            return {"error": "Failed to retrieve locations."}
+
+    except Exception as e:
+        print(f"Error fetching locations: {e}")
+        return {"error": str(e)}
+
+@app.post("/createLocation")
+async def create_location(data: utils.CreateLocationToolRequest):
+    print("Processing createLocation request... 🔄")
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "customerId": data.args.customerId,
+        "name": data.args.location.name,
+        "address": data.args.location.address.model_dump()
+    }
+
+    url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
+    response = requests.post(url, headers=headers, json=payload)
+
+    if response.status_code != 200:
+        print(f"Error creating location: {response.text}")
+        return {"error": response.text}
+
+    print("createLocation request completed ✅")
+    # Suponiendo que response es lo que devuelve el POST al crear la location:
+    response_data = response.json()
+    location_id = response_data.get("id")
+
+    return {
+        "message": "Location created successfully.",
+        "locationId": location_id
+    }
+
+@app.post("/createCustomer")
+async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
+    print("Processing createCustomer request... 🔄")
+    try:
+        response = await create_customer(data.args)
+
+        if "error" in response:
+            print(f"{response['error']}.")
+            return {"error": response["error"]}
+
+        print("createCustomer request completed ✅")
+        return {
+            "customer_id": response.get("customer_id"),
+            "location_id": response.get("location_id"),
+            "status": "created"
+        }
+
+    except Exception as e:
+        print(f"Error processing createCustomer request: {e}")
+        return {"error": str(e)}
+
+@app.post("/checkAvailability")
+async def check_availability(data: utils.BookingRequest):
+    print("Processing checkAvailability request... 🔄")
+    request = data.args
+    access_token = await get_access_token()
+    headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
 
     print("Checking business unit...")
     try:
@@ -420,12 +594,12 @@ async def check_availability(data: utils.BookingRequest):
             job_types_json = response_jobTypes.json()
             job_types = {job_type["id"]: job_type["businessUnitIds"] for job_type in job_types_json["data"]}
 
-        business_units = job_types.get(request.jobType, None)
+        business_units = job_types.get(request.jobTypeId, None)
 
         if business_units:
-            print(f"Business Units for Job Type {request.jobType}: {business_units}")
+            print(f"Business Units for Job Type {request.jobTypeId}: {business_units}")
         else:
-            print(f"Job Type {request.jobType} not found in response.")
+            print(f"Job Type {request.jobTypeId} not found in response.")
         
         print("Business Unit Checked ✅")
     except ValueError:
@@ -434,7 +608,7 @@ async def check_availability(data: utils.BookingRequest):
     available_slots = []
 
     try:
-        available_slots = await check_availability_time(request.time, business_units, request.jobType)
+        available_slots = await check_availability_time(request.time, business_units, request.jobTypeId)
 
         if not available_slots:
             print("No available slots found.")
@@ -448,90 +622,51 @@ async def check_availability(data: utils.BookingRequest):
     }
 
 @app.post("/createJob")
-async def create_job(job_request: utils.jobCreateToolRequest):
-    print("Creating job...")
-    job_request = job_request.args
-
-    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
+async def create_job(data: utils.JobCreateToolRequest):
+    print("Processing createJob request... 🔄")
+    data = data.args
 
     try:
-        # Primero buscar el cliente por número de teléfono
-        customer_response = await get_customer_by_phone(job_request.customer.number)
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
 
-        # Si no lo encuentra por teléfono, buscar por nombre
-        if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"{customer_response['error']}. Trying by name...")
-            customer_response = await get_customer(job_request.customer.name)
+        # Asegurar formato de fecha con "Z"
+        if not data.jobStartTime.endswith("Z"):
+            data.jobStartTime += "Z"
+        if not data.jobEndTime.endswith("Z"):
+            data.jobEndTime += "Z"
 
-        if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"{customer_response['error']}. Creating new customer...")
+        # Convertir fechas a UTC desde hora local de Massachusetts
+        data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
+        data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
 
-            customer_response = await create_customer(job_request.customer)
-
-            if "error" in customer_response:
-                print(f"Failed to create customer: {customer_response['error']}")
-                return {"error": customer_response['error']}
-
-            customer_id = customer_response.get("customer_id")
-            location_id = customer_response.get("location_id")
-
-            if not customer_id or not location_id:
-                return {"error": "Customer created but missing customer_id or location_id."}
-
-            print(f"New customer created with ID: {customer_id} and Location ID: {location_id}")
-        else:
-            customer_id = customer_response
-            print(f"Customer found with ID: {customer_id}. Fetching location...")
-
-            url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
-            location_response = requests.get(url_location, headers=headers)
-
-            if location_response.status_code == 200 and location_response.json().get("data"):
-                location_id = location_response.json().get("data")[0].get("id")
-                print(f"Location ID found: {location_id}")
-            else:
-                print("Error: Unable to fetch location ID.")
-                return {"error": "Failed to retrieve location ID for existing customer."}
-
-        # Asegurar que las fechas tengan la "Z" al final si no la tienen
-        if not job_request.jobStartTime.endswith("Z"):
-            job_request.jobStartTime += "Z"
-        if not job_request.jobEndTime.endswith("Z"):
-            job_request.jobEndTime += "Z"
-
-        # Convertir a UTC desde hora de Massachusetts
-        job_request.jobStartTime = massachusetts_to_utc(job_request.jobStartTime)
-        job_request.jobEndTime = massachusetts_to_utc(job_request.jobEndTime)
-
-        # ✅ Construir el payload correctamente
+        # Construir el payload para ServiceTitan
         payload = {
-            "customerId": customer_id,
-            "locationId": location_id,
-            "businessUnitId": job_request.businessUnitId,
-            "jobTypeId": job_request.jobTypeId,
-            "priority": job_request.priority,
-            "campaignId": job_request.campaignId,
+            "customerId": data.customerId,
+            "locationId": data.locationId,
+            "businessUnitId": data.businessUnitId,
+            "jobTypeId": data.jobTypeId,
+            "priority": data.priority,
+            "campaignId": data.campaignId,
             "appointments": [
                 {
-                    "start": job_request.jobStartTime,
-                    "end": job_request.jobEndTime,
-                    "arrivalWindowStart": job_request.jobStartTime,
-                    "arrivalWindowEnd": job_request.jobEndTime,
+                    "start": data.jobStartTime,
+                    "end": data.jobEndTime,
+                    "arrivalWindowStart": data.jobStartTime,
+                    "arrivalWindowEnd": data.jobEndTime,
                 }
             ],
             "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
             "scheduledTime": datetime.now().strftime("%H:%M"),
-            "summary": job_request.summary
+            "summary": data.summary
         }
 
-        # ✅ ENVIAR SOLICITUD A SERVICE TITAN
-        
+        # Enviar request a ServiceTitan
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
         response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
@@ -539,119 +674,205 @@ async def create_job(job_request: utils.jobCreateToolRequest):
             return {"error": f"Failed to create job: {response.text}"}
 
         job_data = response.json()
-        print("Job request created successfully ✅")
-        return {"status": "Job request booked", "job_id": job_data.get("id")}
+        print("createJob request completed ✅")
+        return {"status": "Job booked", "job_id": job_data.get("id")}
 
     except requests.exceptions.RequestException as e:
         print(f"Request error: {str(e)}")
         return {"error": "Unexpected request error"}
 
-@app.post("/findAppointment")
-async def find_appointment(data: utils.FindAppointmentDataToolRequest):
-    print("Processing findAppointment request...")
+@app.post("/findAppointments")
+async def find_appointments(data: utils.FindAppointmentToolRequest):
+    print("Processing findAppointments request... 🔄")
     data = data.args
+    customer_id = data.customerId
+    print(f"Using provided customerId: {customer_id}")
+
     access_token = await get_access_token()
-
-    # Step 1: Buscar cliente por teléfono, si no existe, por nombre
-    customer_response = await get_customer_by_phone(data.number)
-    if isinstance(customer_response, dict) and "error" in customer_response:
-        print(f"Not found by phone: {customer_response['error']}. Searching by name...")
-        customer_response = await get_customer(data.name)
-    if isinstance(customer_response, dict) and "error" in customer_response:
-        return {"error": customer_response["error"]}
-    customer_id = customer_response
-
-    # Step 2: Obtener todos los jobs agendados para ese cliente
-    print("Fetching scheduled jobs for customer...")
-    url_jobs = (
-        f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-        f"?customerId={customer_id}&jobStatus=Scheduled"
-    )
     headers = {
         "Authorization": access_token,
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
     }
-    resp_jobs = requests.get(url_jobs, headers=headers)
-    if resp_jobs.status_code != 200:
-        return {"error": "Failed to fetch jobs."}
-    jobs = resp_jobs.json().get("data", [])
 
-    # Step 3 & 4: Por cada job, buscar sus appointments agendados y combinar datos
-    combined = []
-    for job in jobs:
-        job_id = job.get("id")
-        business_unit_id = job.get("businessUnitId")
-        job_type_id = job.get("jobTypeId")
-        summary = job.get("summary", "")
-        job_id = job.get("id")
-        employeeId = job.get("jobGeneratedLeadSource", {}).get("employeeId")
+    def fetch_jobs_by_status(status: str):
+        url_jobs = (
+            f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+            f"?customerId={customer_id}&jobStatus={status}"
+        )
+        resp = requests.get(url_jobs, headers=headers)
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+        return []
 
-        print(f"Fetching appointments for job {job_id}...")
+    def fetch_appointments_for_job(job: dict, status: str):
+        job_id = job.get("id")
         url_apps = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
-            f"?jobId={job_id}&status=Scheduled"
+            f"?jobId={job_id}&status={status}"
         )
-        resp_apps = requests.get(url_apps, headers=headers)
-        if resp_apps.status_code != 200:
-            continue
+        resp = requests.get(url_apps, headers=headers)
+        if resp.status_code != 200:
+            print(f"Error fetching appointments for job {job_id}: {resp.text}")
+            return []
 
-        apps = resp_apps.json().get("data", [])
-        for a in apps:
-            # Convertir UTC -> hora local de Massachusetts
-            def to_eastern(ts: str) -> str:
-                if ts.endswith("Z"):
-                    ts = ts.replace("Z", "+00:00")
-                dt_utc = datetime.fromisoformat(ts)
-                return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+        def to_eastern(ts: str) -> str:
+            if ts.endswith("Z"):
+                ts = ts.replace("Z", "+00:00")
+            dt_utc = datetime.fromisoformat(ts)
+            return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
 
-            start_local = to_eastern(a.get("start"))
-            end_local   = to_eastern(a.get("end"))
-
-            combined.append({
-                "jobId": job_id,
-                "businessUnitId": business_unit_id,
-                "jobTypeId": job_type_id,
-                "summary": summary,
-                "employeeId": employeeId,
+        result = []
+        for a in resp.json().get("data", []):
+            result.append({
+                "jobId": job.get("id"),
+                "businessUnitId": job.get("businessUnitId"),
+                "jobTypeId": job.get("jobTypeId"),
+                "summary": job.get("summary", ""),
+                "employeeId": job.get("jobGeneratedLeadSource", {}).get("employeeId"),
                 "appointmentId": a.get("id"),
-                "start": start_local,
-                "end": end_local,
+                "start": to_eastern(a.get("start")),
+                "end": to_eastern(a.get("end")),
             })
-    
-    print("Appointment found ✅")
-    return {"appointments": combined}
+        return result
+
+    scheduled_appointments = []
+    dispatched_appointments = []
+
+    for status in ["Scheduled", "Dispatched"]:
+        jobs = fetch_jobs_by_status(status)
+        print(f"Found {len(jobs)} jobs with status {status}")
+        for job in jobs:
+            job_appointments = fetch_appointments_for_job(job, status)
+            if status == "Scheduled":
+                scheduled_appointments.extend(job_appointments)
+            else:
+                dispatched_appointments.extend(job_appointments)
+
+    if not scheduled_appointments and not dispatched_appointments:
+        print("No scheduled or dispatched appointments found.")
+        return {"message": "No scheduled or dispatched appointments found for this customer."}
+
+    print("findAppointments request completed ✅")
+    return {
+        "scheduled_appointments": scheduled_appointments or [],
+        "dispatched_appointments": dispatched_appointments or []
+    }
+
+@app.post("/findPastAppointments")
+async def find_past_appointments(data: utils.FindAppointmentToolRequest):
+    print("Processing findPastAppointments request... 🔄")
+    data = data.args
+    customer_id = data.customerId
+
+    print(f"Using provided customerId: {customer_id}")
+
+    access_token = await get_access_token()
+    headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
+    def fetch_jobs_by_status(status: str):
+        url = (
+            f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+            f"?customerId={customer_id}&jobStatus={status}"
+        )
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 200:
+            return resp.json().get("data", [])
+        print(f"Error fetching jobs with status {status}: {resp.text}")
+        return []
+
+    def fetch_appointments_for_job(job: dict, status: str):
+        job_id = job.get("id")
+        url = (
+            f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
+            f"?jobId={job_id}&status={status}"
+        )
+        resp = requests.get(url, headers=headers)
+        if resp.status_code != 200:
+            print(f"Error fetching appointments for job {job_id}: {resp.text}")
+            return []
+
+        def to_eastern(ts: str) -> str:
+            if ts.endswith("Z"):
+                ts = ts.replace("Z", "+00:00")
+            dt_utc = datetime.fromisoformat(ts)
+            return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+
+        appointments = []
+        for a in resp.json().get("data", []):
+            appointments.append({
+                "jobId": job.get("id"),
+                "businessUnitId": job.get("businessUnitId"),
+                "jobTypeId": job.get("jobTypeId"),
+                "summary": job.get("summary", ""),
+                "employeeId": job.get("jobGeneratedLeadSource", {}).get("employeeId"),
+                "appointmentId": a.get("id"),
+                "start": to_eastern(a.get("start")),
+                "end": to_eastern(a.get("end")),
+            })
+        return appointments
+
+    hold_appointments = []
+    completed_appointments = []
+    canceled_appointments = []
+
+    for status, target_list in [
+        ("Hold", hold_appointments),
+        ("Completed", completed_appointments),
+        ("Canceled", canceled_appointments),
+    ]:
+        jobs = fetch_jobs_by_status(status)
+        print(f"Found {len(jobs)} jobs with status {status}")
+        for job in jobs:
+            job_appointments = fetch_appointments_for_job(job, status)
+            target_list.extend(job_appointments)
+
+    if not any([hold_appointments, completed_appointments, canceled_appointments]):
+        print("No past appointments found.")
+        return {"message": "No past appointments found for this customer."}
+
+    print("findPastAppointments request completed ✅")
+    return {
+        "holdAppointments": hold_appointments,
+        "completedAppointments": completed_appointments,
+        "canceledAppointments": canceled_appointments,
+    }
 
 @app.post("/rescheduleAppointmentTimeAvailability")
-async def reschedule_appointment_time_availability(data: utils.ReSchedulaDataToolRequest):
-    print("Processing re-scheduling availability request...")
-    # extraer args directos del agente de voz
+async def reschedule_appointment_time_availability(data: utils.ReScheduleToolRequest):
+    print("Processing rescheduleAppointmentTimeAvailability request... 🔄")
     data = data.args
 
-    # usar directamente los datos enviados por el agente
     job_type_id = data.jobTypeId
     business_unit_id = data.businessUnitId
     desired_time = data.newSchedule
 
-    # validar que vengan ambos IDs
     if not job_type_id or not business_unit_id:
+        print("Missing jobTypeId or businessUnitId in request.")
         return {"error": "Missing jobTypeId or businessUnitId in request."}
 
     print(f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
     try:
         slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
         if slots_available:
+            print("rescheduleAppointmentTimeAvailability request completed ✅")
             return {"availableSlots": slots_available}
         else:
             print("No slots available.")
-            return {"availableSlots": []}
+            return {
+                "message": "No time slots are currently available."
+            }
     except requests.exceptions.RequestException as e:
         print(f"Error getting slots: {e}")
         return {"error": "Error when requesting availability."}
 
 @app.post("/rescheduleAppointment")
-async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest):
-    print("Processing re-scheduling request...")
+async def reschedule_appointment(data: utils.ReScheduleToolRequest):
+    print("Processing rescheduleAppointment request... 🔄")
     data = data.args
     access_token = await get_access_token()
 
@@ -714,25 +935,27 @@ async def reschedule_appointment(data: utils.ReSchedulaDataToolRequest):
     resp = requests.patch(url_resch, json=resch_payload, headers=headers)
 
     if resp.status_code == 200:
-        print("Reschedule request processed successfully ✅")
-        return {"status": "Reschedule request processed successfully"}
+        print("rescheduleAppointment request completed ✅")
+        return {"status": "rescheduleAppointment request processed successfully"}
     else:
+        print(f"Failed to reschedule appointment: {resp.text}")
         return {
             "error": f"Request error: {resp.status_code}",
             "details": resp.text
         }
 
 @app.post("/cancelAppointment")
-async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
-    print("Processing cancellation request...")
+async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
+    print("Processing cancelAppointment request... 🔄")
     data = data.args
 
     # extraer directamente los datos necesarios
-    job_id   = data.jobId
+    job_id = data.jobId
     reason_id = data.reasonId
-    memo     = data.memo
+    memo = data.memo
 
     if not job_id:
+        print("Missing jobId in request.")
         return {"error": "Missing jobId in request."}
 
     access_token = await get_access_token()
@@ -756,154 +979,77 @@ async def cancel_appointment(data: utils.cancelJobAppointmentToolRequest):
     if resp.status_code == 200:
         # a veces el body viene vacío
         if not resp.text.strip():
-            print("Job canceled successfully ✅")
+            print("cancelAppointment request completed ✅")
             return {"message": "Job canceled successfully"}
+        print("cancelAppointment request completed ✅")
         return resp.json()
     elif resp.status_code == 404:
+        print("Job ID not found.")
         return {"error": "Job ID not found", "details": resp.json()}
     else:
+        print(f"Failed to cancel job: {resp.text}")
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
-@app.post("/getTime")
-async def get_current_boston_time():
-    print("Getting current time...")
-    utc_now = datetime.now(timezone.utc)
-
-    # Hora de Boston (Eastern Time - EST/EDT)
-    boston_offset = timedelta(hours=-5)  # UTC-5 (EST) por defecto
-    boston_time = utc_now + boston_offset
-
-    # Verificar si es horario de verano (DST)
-    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)  # Segundo domingo de marzo
-    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)  # Primer domingo de noviembre
-
-    if start_dst <= utc_now < end_dst:
-        boston_time += timedelta(hours=1)  # UTC-4 en horario de verano (EDT)
-
-    print(f"Current UTC time: {utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-    print(f"Current Boston time: {boston_time.strftime('%Y-%m-%dT%H:%M:%S')}")
-    print("Getting current time successfully ✅")
-
-    return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
-
-@app.post("/checkWorkArea")
-async def check_work_area(data: utils.addressCheckToolRequest):
-    data = data.args
-    print("Checking coordinates...")
-    PO_BOX_SALEM = (42.775, -71.217)
-    R = 3958.8
-
-    city = data.city.strip().lower()
-    state = data.state
-
-    # Validación rápida: estado permitido y ciudad en lista única
-    if state in VALID_STATES and city in CITIES:
-        print("Coordinates Checked In List✅")
-        return {"message": "City is in the working area (matched from predefined list)."}
-
-    # Fallback: geocodificación + cálculo de distancia
-    address = f"{data.street}, {data.city}, {data.country}"
-    if not address:
-        print("error: The direction is not valid.")
-        return {"error": "The direction is not valid."}
-
-    url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-    resp = requests.get(url_geocode)
-    if resp.status_code != 200:
-        print("error: no response from geocode api")
-        return {"error": "Failed to fetch geolocation data."}
-
-    json_data = resp.json()
-    if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
-        print("error: Address no found in geocode api")
-        return {"error": "The address received does not exist."}
-
-    expected_zip = json_data.get("standard", {}).get("postal")
-    client_zip = data.zip
-    expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
-    if expected_zip_clean and expected_zip_clean != client_zip:
-        print("error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
-        return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
-
-    try:
-        lat = float(json_data.get("latt"))
-        lon = float(json_data.get("longt"))
-    except (TypeError, ValueError):
-        print("error: The provided coordinates are not valid.")
-        return {"error": "The provided coordinates are not valid."}
-
-    lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
-    lat2, lon2 = math.radians(lat), math.radians(lon)
-    delta_lat = lat2 - lat1
-    delta_lon = lon2 - lon1
-    a = math.sin(delta_lat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(delta_lon/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    distance = round(R * c, 2)
-
-    if distance > 50:
-        print("error: There are no services available in the area.")
-        return {"error": "There are no services available in the area."}
-    return {"message": "Address is in the working area."}
-
 @app.post("/updateJobSummary")
-async def update_job_summary(data: utils.updateJobSummaryToolRequest):
+async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
+    print("Processing updateJobSummary request... 🔄")
     data = data.args
+    job_id = data.jobId
+    info = data.info
+
+    if not job_id or not info:
+        return {"error": "Missing required fields: jobId and info"}
+
     access_token = await get_access_token()
-    customer_id = await get_customer(data.name)
-
-    if not customer_id:
-        return {"error": "Customer not found."}
-
-    print("Getting job data...")
-    url_jobs = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs?customerId={customer_id}"
     headers = {
         "Authorization": access_token,
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
     }
-    response_jobs = requests.get(url_jobs, headers=headers)
 
-    if response_jobs.status_code != 200:
-        return {"error": "Failed to fetch job data."}
+    print(f"Fetching current summary for job ID {job_id}...")
 
-    jobs_data_json = response_jobs.json()
-    if not jobs_data_json.get("data"):
-        return {"error": "No jobs found for this customer."}
+    # Get current job info (to retrieve current summary)
+    job_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
+    job_resp = requests.get(job_url, headers=headers)
 
-    job = jobs_data_json["data"][0]
-    job_id = job.get("id")
-    current_summary = job.get("summary")
+    if job_resp.status_code != 200:
+        return {
+            "error": f"Failed to fetch job data for job ID {job_id}",
+            "status_code": job_resp.status_code,
+            "details": job_resp.text
+        }
 
-    new_summary = f"<p>{data.info}</p>"
+    job_data = job_resp.json()
+    current_summary = job_data.get("summary", "")
 
-    if current_summary:
-        updated_summary = f"{current_summary}\n{new_summary}".strip()
-    else:
-        updated_summary = new_summary
+    new_summary = f"<p>{info}</p>"
+    updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
 
     print(f"Updating summary for job ID {job_id}...")
-    url_patch = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
-    patch_payload = {
-        "summary": updated_summary
-    }
+    patch_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
+    patch_payload = {"summary": updated_summary}
 
-    patch_response = requests.patch(url_patch, headers=headers, json=patch_payload)
+    patch_resp = requests.patch(patch_url, headers=headers, json=patch_payload)
 
-    if patch_response.status_code == 200:
-        print("Job summary updated successfully ✅")
+    if patch_resp.status_code == 200:
+        print("updateJobSummary completed ✅")
         return {"status": "Job summary updated"}
     else:
+        print(f"Failed to update job summary: {patch_resp.text}")
         return {
             "error": "Failed to update job summary.",
-            "status_code": patch_response.status_code,
-            "details": patch_response.text
+            "status_code": patch_resp.status_code,
+            "details": patch_resp.text
         }
+
 
 
 #Outbound
 
 @app.post("/checkAvailabilityOutbound")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
+    print("Processing checkAvailabilityOutbound request... 🔄")
     jobType = 5879699
     business_unit = 5878155
     request = data.args
@@ -919,157 +1065,15 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
         if not available_slots:
             print("No available slots found.")
+            return { 'message': 'No availability found.' }
+
     except Exception as e:
         print(f"Error checking availability: {e}")
-
-    print("Checking availability ✅")
+    print("checkAvailabilityOutbound completed ✅")
     return {
         'available_slots': available_slots
     }
 
-#@app.post("/createJobOutbound")
-async def create_job_outbound(job_request: utils.jobCreateToolRequestOutbound):
-
-    print("Creating job...")
-    campaignId = 82014707
-    job_request = job_request.args
-    jobType = 48838652
-    business_unit = 4931462
-
-    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
-
-    try:
-        # Traer customerId
-        customer_response = await get_customer(job_request.name)
-
-        if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"Error fetching customer: {customer_response['error']}")
-            return customer_response
-    
-        customer_id = customer_response
-
-        #Traer locationId
-        url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
-        location_response = requests.get(url_location, headers=headers)
-        location_id = location_response.json().get("data")[0].get("id")
-
-        # Convertir jobStartTime y jobEndTime a datetime
-        start_time = datetime.fromisoformat(job_request.jobStartTime.replace("Z", "+00:00"))
-        end_time = datetime.fromisoformat(job_request.jobEndTime.replace("Z", "+00:00"))
-
-        # Sumar 3 horas
-        start_time += timedelta(hours=4)
-        end_time += timedelta(hours=4)
-
-        # Convertir a formato ISO 8601 con "Z"
-        job_request.jobStartTime = start_time.isoformat().replace("+00:00", "Z")
-        job_request.jobEndTime = end_time.isoformat().replace("+00:00", "Z")
-
-        # ✅ Construir el payload correctamente 
-        payload = {
-            "customerId": customer_id,
-            "locationId": location_id,
-            "businessUnitId": business_unit,
-            "jobTypeId": jobType,
-            "priority": job_request.priority,
-            "campaignId": campaignId,
-            "appointments": [
-                {
-                    "start": job_request.jobStartTime,
-                    "end": job_request.jobEndTime,
-                    "arrivalWindowStart": job_request.jobStartTime,
-                    "arrivalWindowEnd": job_request.jobEndTime,
-                }
-            ],
-            "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
-            "scheduledTime": datetime.now().strftime("%H:%M"),
-            "summary": job_request.summary
-        }
-
-        # ✅ ENVIAR SOLICITUD A SERVICE TITAN
-        response = requests.post(url, headers=headers, json=payload)
-
-        if response.status_code != 200:
-            print(f"Error in response: {response.status_code}, {response.text}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Failed to create job: {response.text}",
-            )
-
-        job_data = response.json()
-        print("Job request created successfully ✅")
-        return {"status": "Job request booked", "job_id": job_data.get("id")}
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Request error: {str(e)}")
-
-
-
-    print("Processing cancellation request...")
-    data = data.args
-    try:
-        customer_response = await get_customer(data.name)
-
-        if isinstance(customer_response, dict) and "error" in customer_response:
-            print(f"Error fetching customer: {customer_response['error']}")
-            return customer_response
-        
-        customer_id = customer_response
-
-        # Obtener el jobId correspondiente al customerId
-        url_appointment = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments?&customerId={customer_id}"
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
-        print("Getting job id ...")
-        response_appointment = requests.get(url_appointment, headers=headers)
-
-        if response_appointment.status_code != 200:
-            return {"error": "Error obtaining reservations.", "details": response_appointment.text}
-
-        appointment_data_json = response_appointment.json()
-        job_id = appointment_data_json["data"][0]["jobId"]
-        print(f"Job ID: {job_id}")
-
-        if not job_id:
-            print("Job ID not found")
-            return {"error": "A Job ID was not found for the customer."}
-
-        # Cancelar la cita
-        print("Processing cancel appointment request...")
-        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
-
-        payload = {
-            "reasonId": data.reasonId,
-            "memo": data.memo
-        }
-
-        response = requests.put(url, headers=headers, json=payload)
-        print(f"Response of the API external: {response.status_code}")
-
-        # Manejo de errores específicos
-        if response.status_code == 404:
-            return {"error": "Job ID not found.", "details": response.json()}
-
-        if response.status_code == 200:
-            if not response.text.strip():  # Si la respuesta está vacía
-                print("Job appointmet canceled successfully ✅")
-                return {"message": "Job appointment canceled successfully."}
-            return response.json()
-
-        return {"error": f"Error in request: {response.status_code}", "details": response.text}
-    except Exception as e:
-        print(f"Exception while processing cancel job appointment: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-    
 
 #download fastapi: pip install "fastapi[standard]"
 #download dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
