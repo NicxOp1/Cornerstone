@@ -475,7 +475,10 @@ async def find_customer(data: utils.FindCustomerToolRequest):
             customers_list = customers_data_json.get("data", [])
             if not customers_list:
                 print("No customers found by phone.")
-                return {"error": "No customers found by phone."}
+                return {
+                    "found": False,
+                    "message": "No customers found by phone."
+                }
             customers = [
                 {"customerId": c.get("id"), "customerName": c.get("name")}
                 for c in customers_list
@@ -598,8 +601,8 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 
         print("createCustomer request completed ✅")
         return {
-            "customer_id": response.get("customer_id"),
-            "location_id": response.get("location_id"),
+            "customer_id": response.get("customer_id") or response.get("customerId"),
+            "location_id": response.get("location_id") or response.get("locationId"),
             "status": "created"
         }
 
