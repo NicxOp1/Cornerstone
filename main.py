@@ -825,7 +825,6 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         args_obj = data.args
 
     data = args_obj
-
     customer_id = data.customerId
 
     print(f"Using provided customerId: {customer_id}")
@@ -837,22 +836,29 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         "Content-Type": "application/json",
     }
 
-    def fetch_jobs_by_status(status: str):
+    # Mapeo de status de Appointments → Jobs
+    STATUS_MAP = {
+        "Hold": "Hold",
+        "Done": "Completed",     # Appointment status → Job status
+        "Canceled": "Canceled"
+    }
+
+    def fetch_jobs_by_status(job_status: str):
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-            f"?customerId={customer_id}&jobStatus={status}"
+            f"?customerId={customer_id}&jobStatus={job_status}"
         )
         resp = requests.get(url, headers=headers)
         if resp.status_code == 200:
             return resp.json().get("data", [])
-        print(f"Error fetching jobs with status {status}: {resp.text}")
+        print(f"Error fetching jobs with status {job_status}: {resp.text}")
         return []
 
-    def fetch_appointments_for_job(job: dict, status: str):
+    def fetch_appointments_for_job(job: dict, appointment_status: str):
         job_id = job.get("id")
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
-            f"?jobId={job_id}&status={status}"
+            f"?jobId={job_id}&status={appointment_status}"
         )
         resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
@@ -880,28 +886,30 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         return appointments
 
     hold_appointments = []
-    completed_appointments = []
+    done_appointments = []
     canceled_appointments = []
 
-    for status, target_list in [
+    for appointment_status, target_list in [
         ("Hold", hold_appointments),
-        ("Completed", completed_appointments),
+        ("Done", done_appointments),
         ("Canceled", canceled_appointments),
     ]:
-        jobs = fetch_jobs_by_status(status)
-        print(f"Found {len(jobs)} jobs with status {status}")
+        job_status = STATUS_MAP[appointment_status]
+        jobs = fetch_jobs_by_status(job_status)
+        print(f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
+
         for job in jobs:
-            job_appointments = fetch_appointments_for_job(job, status)
+            job_appointments = fetch_appointments_for_job(job, appointment_status)
             target_list.extend(job_appointments)
 
-    if not any([hold_appointments, completed_appointments, canceled_appointments]):
+    if not any([hold_appointments, done_appointments, canceled_appointments]):
         print("No past appointments found.")
         return {"message": "No past appointments found for this customer."}
 
     print("findPastAppointments request completed ✅")
     return {
         "holdAppointments": hold_appointments,
-        "completedAppointments": completed_appointments,
+        "doneAppointments": done_appointments,
         "canceledAppointments": canceled_appointments,
     }
 
