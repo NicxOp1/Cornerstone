@@ -119,9 +119,9 @@ async def create_customer(customer: utils.CustomerCreateRequest):
     }
 
     try:
-        if not customer.name or not customer.number or not customer.email:
-            print("Error: Customer name, number, and email are required.")
-            return {"error": "Customer name, number, and email are required."}
+        if not customer.name or not customer.number:
+            print("Error: Customer name and number are required.")
+            return {"error": "Customer name and number are required."}
 
         # Definir la dirección si no está completa
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
@@ -225,11 +225,6 @@ async def create_customer(customer: utils.CustomerCreateRequest):
                         status_code=response_email.status_code,
                         detail=f"Failed to add email contact data: {response_email.text}",
                     )
-            else:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Failed to create customer: {response.text}",
-                )
             
             print("Customer created successfully with contact data added ✅")
             return {"customerId": customer_id, "locationId": location_id}
@@ -265,7 +260,7 @@ async def check_availability_time(time, business_units, job_type):
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
     }
-
+    
     # Intentos (máx 5), sumando 7 días cada vez
     for attempt in range(5):
         print(f"Attempt {attempt + 1}/5...")
@@ -310,7 +305,7 @@ async def check_availability_time(time, business_units, job_type):
         except Exception as e:
             print(f"❌ Exception occurred: {str(e)}")
 
-    print("No available slots found after 5 attempts.")
+    print(f"No available slots found after 5 attempts.")
     return []
 
 async def get_technicians_by_businessUnitId(businessUnitId):
@@ -655,6 +650,9 @@ async def check_availability(data: utils.BookingRequest):
 
         if not available_slots:
             print("No available slots found.")
+            start_date = datetime.strptime(data.time, "%Y-%m-%dT%H:%M:%SZ")
+            end_date = start_date + timedelta(days=42)
+            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
     except Exception as e:
         print(f"Error checking availability: {e}")
 
@@ -940,9 +938,9 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
             return {"availableSlots": slots_available}
         else:
             print("No slots available.")
-            return {
-                "message": "No time slots are currently available."
-            }
+            start_date = datetime.strptime(data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
+            end_date = start_date + timedelta(days=42)
+            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
     except requests.exceptions.RequestException as e:
         print(f"Error getting slots: {e}")
         return {"error": "Error when requesting availability."}
