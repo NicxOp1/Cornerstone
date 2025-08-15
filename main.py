@@ -722,7 +722,12 @@ async def create_job(data: utils.JobCreateToolRequest):
 
         job_data = response.json()
         print("createJob request completed ✅")
-        return {"status": "Job booked", "jobId": job_data.get("id")}
+        return {
+            "status": "Job booked",
+            "jobId": job_data.get("id"),
+            "appointmentId": job_data.get("lastAppointmentId")
+        }
+
 
     except requests.exceptions.RequestException as e:
         print(f"Request error: {str(e)}")
