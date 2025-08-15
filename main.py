@@ -596,8 +596,8 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 
         print("createCustomer request completed ✅")
         return {
-            "customer_id": response.get("customer_id") or response.get("customerId"),
-            "location_id": response.get("location_id") or response.get("locationId"),
+            "customerId": response.get("customer_id") or response.get("customerId"),
+            "locationId": response.get("location_id") or response.get("locationId"),
             "status": "created"
         }
 
@@ -722,7 +722,7 @@ async def create_job(data: utils.JobCreateToolRequest):
 
         job_data = response.json()
         print("createJob request completed ✅")
-        return {"status": "Job booked", "job_id": job_data.get("id")}
+        return {"status": "Job booked", "jobId": job_data.get("id")}
 
     except requests.exceptions.RequestException as e:
         print(f"Request error: {str(e)}")
@@ -738,8 +738,8 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
         args_obj = data.args
 
     data = args_obj
-
     customer_id = data.customerId
+
     print(f"Using provided customerId: {customer_id}")
 
     access_token = await get_access_token()
@@ -749,23 +749,31 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
         "Content-Type": "application/json",
     }
 
-    def fetch_jobs_by_status(status: str):
-        url_jobs = (
+    # Mapear AppointmentStatus -> JobStatus
+    STATUS_MAP = {
+        "Scheduled": "Scheduled",
+        "Dispatched": "Dispatched",
+        "Working": "InProgress",
+    }
+
+    def fetch_jobs_by_status(job_status: str):
+        url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-            f"?customerId={customer_id}&jobStatus={status}"
+            f"?customerId={customer_id}&jobStatus={job_status}"
         )
-        resp = requests.get(url_jobs, headers=headers)
+        resp = requests.get(url, headers=headers)
         if resp.status_code == 200:
             return resp.json().get("data", [])
+        print(f"Error fetching jobs with status {job_status}: {resp.text}")
         return []
 
-    def fetch_appointments_for_job(job: dict, status: str):
+    def fetch_appointments_for_job(job: dict, appointment_status: str):
         job_id = job.get("id")
-        url_apps = (
+        url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
-            f"?jobId={job_id}&status={status}"
+            f"?jobId={job_id}&status={appointment_status}"
         )
-        resp = requests.get(url_apps, headers=headers)
+        resp = requests.get(url, headers=headers)
         if resp.status_code != 200:
             print(f"Error fetching appointments for job {job_id}: {resp.text}")
             return []
@@ -776,9 +784,9 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
             dt_utc = datetime.fromisoformat(ts)
             return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
 
-        result = []
+        appointments = []
         for a in resp.json().get("data", []):
-            result.append({
+            appointments.append({
                 "jobId": job.get("id"),
                 "businessUnitId": job.get("businessUnitId"),
                 "jobTypeId": job.get("jobTypeId"),
@@ -788,29 +796,45 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
                 "start": to_eastern(a.get("start")),
                 "end": to_eastern(a.get("end")),
             })
-        return result
+        return appointments
 
+    # Contenedores para cada tipo de appointment
     scheduled_appointments = []
     dispatched_appointments = []
+    working_appointments = []
 
-    for status in ["Scheduled", "Dispatched"]:
-        jobs = fetch_jobs_by_status(status)
-        print(f"Found {len(jobs)} jobs with status {status}")
+    # Recorremos todos los estados posibles
+    for appointment_status, target_list in [
+        ("Scheduled", scheduled_appointments),
+        ("Dispatched", dispatched_appointments),
+        ("Working", working_appointments),
+    ]:
+        job_status = STATUS_MAP.get(appointment_status)
+        if not job_status:
+            print(f"⚠️ Appointment status '{appointment_status}' not mapped to any Job status.")
+            continue
+
+        jobs = fetch_jobs_by_status(job_status)
+        print(f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
+
         for job in jobs:
-            job_appointments = fetch_appointments_for_job(job, status)
-            if status == "Scheduled":
-                scheduled_appointments.extend(job_appointments)
-            else:
-                dispatched_appointments.extend(job_appointments)
+            job_appointments = fetch_appointments_for_job(job, appointment_status)
+            target_list.extend(job_appointments)
 
-    if not scheduled_appointments and not dispatched_appointments:
-        print("No scheduled or dispatched appointments found.")
-        return {"message": "No scheduled or dispatched appointments found for this customer."}
+    # Si no hay nada encontrado
+    if not any([
+        scheduled_appointments,
+        dispatched_appointments,
+        working_appointments,
+    ]):
+        print("No appointments found.")
+        return {"message": "No scheduled, dispatched or working appointments found for this customer."}
 
     print("findAppointments request completed ✅")
     return {
-        "scheduled_appointments": scheduled_appointments or [],
-        "dispatched_appointments": dispatched_appointments or []
+        "scheduledAppointments": scheduled_appointments,
+        "dispatchedAppointments": dispatched_appointments,
+        "workingAppointments": working_appointments
     }
 
 @app.post("/findPastAppointments")
