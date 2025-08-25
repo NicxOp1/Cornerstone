@@ -556,7 +556,7 @@ async def create_location(data: utils.CreateLocationToolRequest):
     payload = {
         "customerId": data.customerId,
         "name": data.location.name,
-        "address": data.location.address.model_dump()
+        "address": data.location.address.dict()
     }
 
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
