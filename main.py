@@ -24,7 +24,7 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 TENANT_ID = os.getenv("TENANT_ID")
 APP_ID = os.getenv("APP_ID")
 EASTERN_TIME = pytz.timezone("America/New_York")
-MAPS_AUTH= os.getenv("MAPS_AUTH")
+MAPS_AUTH = os.getenv("MAPS_AUTH")
 
 app = FastAPI()
 
@@ -44,13 +44,16 @@ VALID_STATES = {
 }
 
 # Auxiliary functions
+
+
 async def get_access_token():
     try:
         print("Fetching access token...")
         response = requests.post(
             AUTH_URL,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "client_credentials", "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+            data={"grant_type": "client_credentials",
+                  "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
         )
 #        print(f"Token response status: {response.status_code}")
         if response.status_code == 200:
@@ -59,10 +62,13 @@ async def get_access_token():
             return token_data.get("access_token")
         else:
             print(f"Error fetching token: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail=f"Authentication failed: {response.text}")
+            raise HTTPException(status_code=response.status_code,
+                                detail=f"Authentication failed: {response.text}")
     except Exception as e:
         print(f"Exception while fetching token: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get access token: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get access token: {str(e)}")
+
 
 def massachusetts_to_utc(dt_str: str) -> str:
     dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
@@ -70,6 +76,7 @@ def massachusetts_to_utc(dt_str: str) -> str:
     dt_eastern = eastern_tz.localize(dt)
     dt_utc = dt_eastern.astimezone(pytz.utc)
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+
 
 async def get_customer_by_phone(phone):
     print("Getting customer by phone...")
@@ -85,7 +92,7 @@ async def get_customer_by_phone(phone):
 
         if response_customers.status_code == 200:
             customers_data_json = response_customers.json()
-            
+
             if not customers_data_json.get("data"):
                 print("Error: No customers found by phone.")
                 return {"error": "Customer not found by phone."}
@@ -100,12 +107,14 @@ async def get_customer_by_phone(phone):
             print("Customer found by phone✅")
             return customer
 
-        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        print(
+            f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
-    
+
     except requests.exceptions.RequestException as e:
         print(f"Error getting client: {e}")
         return {"error": "Error when making external request."}
+
 
 async def create_customer(customer: utils.CustomerCreateRequest):
     print("Creating customer ...")
@@ -161,7 +170,7 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
         response = requests.post(url, headers=headers, json=payload)
         print("Response Status Code:", response.status_code)
-        
+
         if response.status_code != 200:
             print(f"Error creating customer: {response.text}")
             return {"error": f"Failed to create customer: {response.text}"}
@@ -173,7 +182,7 @@ async def create_customer(customer: utils.CustomerCreateRequest):
         if not customer_id or not location_id:
             print("Error: Customer or Location ID missing in API response.")
             return {"error": "Customer or Location ID missing in API response."}
-        
+
         if response.status_code == 200:
             print("Created customer successfully ✅")
             data = response.json()
@@ -188,8 +197,9 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
             # Primero, crea el contacto con el número móvil si está disponible
             if customer.number:
-                clean_number = re.sub(r"\D", "", customer.number)  # Elimina espacios, guiones, paréntesis, etc.
-                
+                # Elimina espacios, guiones, paréntesis, etc.
+                clean_number = re.sub(r"\D", "", customer.number)
+
                 contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
                 mobile_payload = {
                     "type": "MobilePhone",
@@ -197,11 +207,13 @@ async def create_customer(customer: utils.CustomerCreateRequest):
                     "memo": "Customer phone number"
                 }
 
-                response_mobile = requests.post(contact_url, headers=headers, json=mobile_payload)
+                response_mobile = requests.post(
+                    contact_url, headers=headers, json=mobile_payload)
                 if response_mobile.status_code == 200:
                     print("Mobile contact data added successfully ✅")
                 else:
-                    print(f"Error adding mobile contact data: {response_mobile.text}")
+                    print(
+                        f"Error adding mobile contact data: {response_mobile.text}")
                     raise HTTPException(
                         status_code=response_mobile.status_code,
                         detail=f"Failed to add mobile contact data: {response_mobile.text}",
@@ -216,20 +228,23 @@ async def create_customer(customer: utils.CustomerCreateRequest):
                     "memo": "Customer email"  # (Opcional) Nota descriptiva
                 }
 
-                response_email = requests.post(contact_url, headers=headers, json=email_payload)
+                response_email = requests.post(
+                    contact_url, headers=headers, json=email_payload)
                 if response_email.status_code == 200:
                     print("Email contact data added successfully ✅")
                 else:
-                    print(f"Error adding email contact data: {response_email.text}")
+                    print(
+                        f"Error adding email contact data: {response_email.text}")
                     raise HTTPException(
                         status_code=response_email.status_code,
                         detail=f"Failed to add email contact data: {response_email.text}",
                     )
-            
+
             print("Customer created successfully with contact data added ✅")
             return {"customerId": customer_id, "locationId": location_id}
     except ValueError:
         print({"error": "Failed to create customer."})
+
 
 async def check_availability_time(time, business_units, job_type):
     print("Checking availability time...")
@@ -260,16 +275,18 @@ async def check_availability_time(time, business_units, job_type):
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
     }
-    
+
     # Intentos (máx 5), sumando 7 días cada vez
     for attempt in range(5):
         print(f"Attempt {attempt + 1}/5...")
 
         current_start = start_time + timedelta(days=attempt * 7)
-        current_end = current_start + timedelta(days=14)
-        current_end = current_end.replace(hour=23, minute=59, second=0, microsecond=0)
+        current_end = current_start + timedelta(days=13)
+        current_end = current_end.replace(
+            hour=23, minute=59, second=0, microsecond=0)
 
-        starts_on_or_after = current_start.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        starts_on_or_after = current_start.replace(
+            tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         ends_on_or_before = current_end.strftime('%Y-%m-%dT%H:%M:%SZ')
 
         payload = {
@@ -300,13 +317,15 @@ async def check_availability_time(time, business_units, job_type):
                 else:
                     print(f"No slots on attempt {attempt + 1}, retrying...")
             else:
-                print(f"❌ Error in API response: {response.status_code} {response.text}")
+                print(
+                    f"❌ Error in API response: {response.status_code} {response.text}")
 
         except Exception as e:
             print(f"❌ Exception occurred: {str(e)}")
 
     print(f"No available slots found after 5 attempts.")
     return []
+
 
 async def get_technicians_by_businessUnitId(businessUnitId):
     print(f"Getting technicians for Business Unit ID: {businessUnitId}...")
@@ -326,21 +345,24 @@ async def get_technicians_by_businessUnitId(businessUnitId):
         if response_technicians.status_code == 200:
             print("Technicians fetched successfully.")
             response_data = response_technicians.json()
-            
+
             # Filtrar los técnicos según el businessUnitId
             technicians = [
                 tech for tech in response_data.get("data", []) if tech.get("businessUnitId") == businessUnitId
             ]
 
             if technicians:
-                print(f"Found {len(technicians)} technicians for Business Unit ID {businessUnitId}.")
+                print(
+                    f"Found {len(technicians)} technicians for Business Unit ID {businessUnitId}.")
             else:
-                print(f"No technicians found for Business Unit ID {businessUnitId}.")
-            
+                print(
+                    f"No technicians found for Business Unit ID {businessUnitId}.")
+
             return technicians
 
         else:
-            print(f"Error fetching technicians. Status Code: {response_technicians.status_code}")
+            print(
+                f"Error fetching technicians. Status Code: {response_technicians.status_code}")
             return {"error": "Failed to retrieve technicians."}
 
     except Exception as e:
@@ -348,12 +370,12 @@ async def get_technicians_by_businessUnitId(businessUnitId):
         return {"error": "Checking technicians by business unit failed."}
 
 
-
 # Endpoints
 @app.get("/")
 def read_root():
     print("Root endpoint accessed.")
     return {"status": "Service is up"}
+
 
 @app.post("/getTime")
 async def get_current_boston_time():
@@ -365,8 +387,10 @@ async def get_current_boston_time():
     boston_time = utc_now + boston_offset
 
     # Verificar si es horario de verano (DST)
-    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)  # Segundo domingo de marzo
-    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)  # Primer domingo de noviembre
+    # Segundo domingo de marzo
+    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)
+    # Primer domingo de noviembre
+    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)
 
     if start_dst <= utc_now < end_dst:
         boston_time += timedelta(hours=1)  # UTC-4 en horario de verano (EDT)
@@ -377,6 +401,7 @@ async def get_current_boston_time():
     print("getTime request completed ✅")
 
     return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
+
 
 @app.post("/checkWorkArea")
 async def check_work_area(data: utils.AddressCheckToolRequest):
@@ -421,7 +446,8 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     client_zip = data.zip
     expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
     if expected_zip_clean and expected_zip_clean != client_zip:
-        print("error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
+        print(
+            "error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
         return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
 
     try:
@@ -435,7 +461,8 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     lat2, lon2 = math.radians(lat), math.radians(lon)
     delta_lat = lat2 - lat1
     delta_lon = lon2 - lon1
-    a = math.sin(delta_lat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(delta_lon/2)**2
+    a = math.sin(delta_lat/2)**2 + math.cos(lat1) * \
+        math.cos(lat2)*math.sin(delta_lon/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     distance = round(R * c, 2)
 
@@ -444,6 +471,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
         return {"error": "There are no services available in the area."}
     print("checkWorkArea request completed ✅")
     return {"message": "Address is in the working area."}
+
 
 @app.post("/findCustomer")
 async def find_customer(data: utils.FindCustomerToolRequest):
@@ -480,11 +508,13 @@ async def find_customer(data: utils.FindCustomerToolRequest):
             ]
             print(f"Found {len(customers)} customers by phone ✅")
             return customers
-        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        print(
+            f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
     except requests.exceptions.RequestException as e:
         print(f"Error getting customers: {e}")
         return {"error": "Error when making external request."}
+
 
 @app.post("/getCustomerLocations")
 async def get_customer_locations(data: utils.FindAppointmentToolRequest):
@@ -516,7 +546,8 @@ async def get_customer_locations(data: utils.FindAppointmentToolRequest):
             locations = []
             for loc in locations_data:
                 addr = loc.get("address", {})
-                formatted_address = f"{addr.get('street', '')}, {addr.get('city', '')}, {addr.get('state', '')}".strip(", ")
+                formatted_address = f"{addr.get('street', '')}, {addr.get('city', '')}, {addr.get('state', '')}".strip(
+                    ", ")
                 locations.append({
                     "locationId": loc.get("id"),
                     "locationAddress": formatted_address
@@ -528,12 +559,14 @@ async def get_customer_locations(data: utils.FindAppointmentToolRequest):
                 "locations": locations
             }
         else:
-            print(f"Failed to get locations: {response_location.status_code} - {response_location.text}")
+            print(
+                f"Failed to get locations: {response_location.status_code} - {response_location.text}")
             return {"error": "Failed to retrieve locations."}
 
     except Exception as e:
         print(f"Error fetching locations: {e}")
         return {"error": str(e)}
+
 
 @app.post("/createLocation")
 async def create_location(data: utils.CreateLocationToolRequest):
@@ -576,6 +609,7 @@ async def create_location(data: utils.CreateLocationToolRequest):
         "locationId": location_id
     }
 
+
 @app.post("/createCustomer")
 async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
     print("Processing createCustomer request... 🔄")
@@ -605,10 +639,11 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
         print(f"Error processing createCustomer request: {e}")
         return {"error": str(e)}
 
+
 @app.post("/checkAvailability")
 async def check_availability(data: utils.BookingRequest):
     print("Processing checkAvailability request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.RequestArgs.parse_obj(data.args)
     else:
@@ -618,10 +653,10 @@ async def check_availability(data: utils.BookingRequest):
 
     access_token = await get_access_token()
     headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
 
     print("Checking business unit...")
     try:
@@ -630,7 +665,8 @@ async def check_availability(data: utils.BookingRequest):
 
         if response_jobTypes.status_code == 200:
             job_types_json = response_jobTypes.json()
-            job_types = {job_type["id"]: job_type["businessUnitIds"] for job_type in job_types_json["data"]}
+            job_types = {job_type["id"]: job_type["businessUnitIds"]
+                         for job_type in job_types_json["data"]}
 
         business_units = job_types.get(data.jobTypeId, None)
 
@@ -638,11 +674,11 @@ async def check_availability(data: utils.BookingRequest):
             pass
         else:
             print(f"Job Type {data.jobTypeId} not found in response.")
-        
+
         print("Business Unit Checked ✅")
     except ValueError:
         return {"error": "Checking business unit failed."}
- 
+
     available_slots = []
 
     try:
@@ -662,10 +698,11 @@ async def check_availability(data: utils.BookingRequest):
         'available_slots': available_slots
     }
 
+
 @app.post("/createJob")
 async def create_job(data: utils.JobCreateToolRequest):
     print("Processing createJob request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.JobCreateRequest.parse_obj(data.args)
     else:
@@ -717,7 +754,8 @@ async def create_job(data: utils.JobCreateToolRequest):
         response = requests.post(url, headers=headers, json=payload)
 
         if response.status_code != 200:
-            print(f"Error in response: {response.status_code}, {response.text}")
+            print(
+                f"Error in response: {response.status_code}, {response.text}")
             return {"error": f"Failed to create job: {response.text}"}
 
         job_data = response.json()
@@ -728,15 +766,15 @@ async def create_job(data: utils.JobCreateToolRequest):
             "appointmentId": job_data.get("lastAppointmentId")
         }
 
-
     except requests.exceptions.RequestException as e:
         print(f"Request error: {str(e)}")
         return {"error": "Unexpected request error"}
 
+
 @app.post("/findAppointments")
 async def find_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findAppointments request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.FindAppointmentData.parse_obj(data.args)
     else:
@@ -816,14 +854,17 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
     ]:
         job_status = STATUS_MAP.get(appointment_status)
         if not job_status:
-            print(f"⚠️ Appointment status '{appointment_status}' not mapped to any Job status.")
+            print(
+                f"⚠️ Appointment status '{appointment_status}' not mapped to any Job status.")
             continue
 
         jobs = fetch_jobs_by_status(job_status)
-        print(f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
+        print(
+            f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
 
         for job in jobs:
-            job_appointments = fetch_appointments_for_job(job, appointment_status)
+            job_appointments = fetch_appointments_for_job(
+                job, appointment_status)
             target_list.extend(job_appointments)
 
     # Si no hay nada encontrado
@@ -842,10 +883,11 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
         "workingAppointments": working_appointments
     }
 
+
 @app.post("/findPastAppointments")
 async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     print("Processing findPastAppointments request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.FindAppointmentData.parse_obj(data.args)
     else:
@@ -923,10 +965,12 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     ]:
         job_status = STATUS_MAP[appointment_status]
         jobs = fetch_jobs_by_status(job_status)
-        print(f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
+        print(
+            f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
 
         for job in jobs:
-            job_appointments = fetch_appointments_for_job(job, appointment_status)
+            job_appointments = fetch_appointments_for_job(
+                job, appointment_status)
             target_list.extend(job_appointments)
 
     if not any([hold_appointments, done_appointments, canceled_appointments]):
@@ -940,10 +984,11 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         "canceledAppointments": canceled_appointments,
     }
 
+
 @app.post("/rescheduleAppointmentTimeAvailability")
 async def reschedule_appointment_time_availability(data: utils.ReScheduleToolRequest):
     print("Processing rescheduleAppointmentTimeAvailability request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.ReScheduleData.parse_obj(data.args)
     else:
@@ -959,7 +1004,8 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
         print("Missing jobTypeId or businessUnitId in request.")
         return {"error": "Missing jobTypeId or businessUnitId in request."}
 
-    print(f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
+    print(
+        f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
     try:
         slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
         if slots_available:
@@ -967,24 +1013,26 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
             return {"availableSlots": slots_available}
         else:
             print("No slots available.")
-            start_date = datetime.strptime(data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
+            start_date = datetime.strptime(
+                data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
             end_date = start_date + timedelta(days=42)
             return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
     except requests.exceptions.RequestException as e:
         print(f"Error getting slots: {e}")
         return {"error": "Error when requesting availability."}
 
+
 @app.post("/rescheduleAppointment")
 async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     print("Processing rescheduleAppointment request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.ReScheduleData.parse_obj(data.args)
     else:
         args_obj = data.args
 
     data = args_obj
-    
+
     access_token = await get_access_token()
 
     appointment_id = data.appointmentId
@@ -993,8 +1041,10 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
 
     # 1. Unassign technician if provided
     if technician_id:
-        tech_ids = technician_id if isinstance(technician_id, list) else [technician_id]
-        print(f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
+        tech_ids = technician_id if isinstance(
+            technician_id, list) else [technician_id]
+        print(
+            f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
         url_unassign = (
             f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}"
             "/appointment-assignments/unassign-technicians"
@@ -1008,7 +1058,8 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
             "jobAppointmentId": appointment_id,
             "technicianIds": tech_ids
         }
-        resp_unassign = requests.patch(url_unassign, json=unassign_payload, headers=headers)
+        resp_unassign = requests.patch(
+            url_unassign, json=unassign_payload, headers=headers)
         if resp_unassign.status_code == 200:
             print("Technician unassigned successfully ✅")
         else:
@@ -1027,7 +1078,8 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     end_utc = end_dt.isoformat().replace("+00:00", "Z")
 
     # 5. Send the reschedule PATCH
-    print(f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
+    print(
+        f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
     url_resch = (
         f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}"
         f"/appointments/{appointment_id}/reschedule"
@@ -1055,10 +1107,11 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
             "details": resp.text
         }
 
+
 @app.post("/cancelAppointment")
 async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
     print("Processing cancelAppointment request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.CancelJobAppointment.parse_obj(data.args)
     else:
@@ -1107,10 +1160,11 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
         print(f"Failed to cancel job: {resp.text}")
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
 
+
 @app.post("/updateJobSummary")
 async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     print("Processing updateJobSummary request... 🔄")
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.UpdateJobSummary.parse_obj(data.args)
     else:
@@ -1148,7 +1202,8 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     current_summary = job_data.get("summary", "")
 
     new_summary = f"<p>{info}</p>"
-    updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
+    updated_summary = f"{current_summary}\n\n{new_summary}".strip(
+    ) if current_summary else new_summary
 
     print(f"Updating summary for job ID {job_id}...")
     patch_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
@@ -1168,15 +1223,14 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
         }
 
 
-
-#Outbound
+# Outbound
 
 @app.post("/checkAvailabilityOutbound")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
     print("Processing checkAvailabilityOutbound request... 🔄")
     jobType = 5879699
     business_unit = 5878155
-    
+
     if isinstance(data.args, dict):
         args_obj = utils.RequestArgsOutbound.parse_obj(data.args)
     else:
@@ -1187,7 +1241,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     await get_technicians_by_businessUnitId(5878155)
 
     print("Checking availability...")
- 
+
     available_slots = []
 
     try:
@@ -1195,7 +1249,7 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
         if not available_slots:
             print("No available slots found.")
-            return { 'message': 'No availability found.' }
+            return {'message': 'No availability found.'}
 
     except Exception as e:
         print(f"Error checking availability: {e}")
@@ -1205,8 +1259,8 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     }
 
 
-#download fastapi: pip install "fastapi[standard]"
-#download dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
-#download pytz: pip install pytz
-#download pandas: pip install pandas
-#start the server: fastapi dev main.py
+# download fastapi: pip install "fastapi[standard]"
+# download dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
+# download pytz: pip install pytz
+# download pandas: pip install pandas
+# start the server: fastapi dev main.py
