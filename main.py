@@ -641,6 +641,7 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 
 
 @app.post("/checkAvailability")
+@app.post("/checkAvailability/")
 async def check_availability(data: utils.BookingRequest):
     print("Processing checkAvailability request... 🔄")
 
@@ -1226,6 +1227,7 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
 # Outbound
 
 @app.post("/checkAvailabilityOutbound")
+@app.post("/checkAvailabilityOutbound/")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
     print("Processing checkAvailabilityOutbound request... 🔄")
     jobType = 5879699
