@@ -78,6 +78,17 @@ def massachusetts_to_utc(dt_str: str) -> str:
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def utc_to_eastern(dt_str: str) -> str:
+    """Convierte una fecha UTC de ServiceTitan a hora Eastern (Massachusetts).
+    Maneja DST automáticamente a través de pytz."""
+    if dt_str.endswith("Z"):
+        dt_str = dt_str.replace("Z", "+00:00")
+    dt_utc = datetime.fromisoformat(dt_str)
+    eastern_tz = pytz.timezone("America/New_York")
+    dt_eastern = dt_utc.astimezone(eastern_tz)
+    return dt_eastern.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 async def get_customer_by_phone(phone):
     print("Getting customer by phone...")
     try:
@@ -1010,8 +1021,12 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
     try:
         slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
         if slots_available:
-            print("rescheduleAppointmentTimeAvailability request completed ✅")
-            return {"availableSlots": slots_available}
+            slots_eastern = [
+                {"start": utc_to_eastern(s["start"]), "end": utc_to_eastern(s["end"])}
+                for s in slots_available
+            ]
+            print("rescheduleAppointmentTimeAvailability request completed ")
+            return {"availableSlots": slots_eastern}
         else:
             print("No slots available.")
             start_date = datetime.strptime(
