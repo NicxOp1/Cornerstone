@@ -1,7 +1,13 @@
 from datetime import datetime, date, timedelta, time, timezone
 from typing import Tuple, Dict
 from fastapi import FastAPI, Request, Response, HTTPException
-import requests
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+import httpx
+import asyncio
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import utils as utils
 import logging
 from dotenv import load_dotenv
@@ -10,6 +16,7 @@ import json
 import pytz
 import math
 import re
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,8 +32,26 @@ TENANT_ID = os.getenv("TENANT_ID")
 APP_ID = os.getenv("APP_ID")
 EASTERN_TIME = pytz.timezone("America/New_York")
 MAPS_AUTH = os.getenv("MAPS_AUTH")
+GMAIL_USER = os.getenv("GMAIL_USER")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+OFFICE_EMAIL = "info@cornerstoneservicesne.com"
+
+DIRECT_LINES = {
+    "john": "6033274334",
+    "josh": "6033275618",
+}
 
 app = FastAPI()
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errors = exc.errors()
+    missing = [e["loc"][-1] for e in errors]
+    logger.error(f"[ValidationError] Missing/invalid fields: {missing} — body: {await request.body()}")
+    return JSONResponse(
+        status_code=400,
+        content={"error": f"Missing or invalid required fields: {missing}"}
+    )
 
 CITIES = {
     "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree", "brockton", "cambridge", "chelsea",
@@ -49,13 +74,13 @@ VALID_STATES = {
 async def get_access_token():
     try:
         print("Fetching access token...")
-        response = requests.post(
-            AUTH_URL,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={"grant_type": "client_credentials",
-                  "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
-        )
-#        print(f"Token response status: {response.status_code}")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                AUTH_URL,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={"grant_type": "client_credentials",
+                      "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+            )
         if response.status_code == 200:
             token_data = response.json()
             print("Access token fetched successfully. ✅")
@@ -64,7 +89,7 @@ async def get_access_token():
             print(f"Error fetching token: {response.text}")
             raise HTTPException(status_code=response.status_code,
                                 detail=f"Authentication failed: {response.text}")
-    except Exception as e:
+    except httpx.RequestError as e:
         print(f"Exception while fetching token: {str(e)}")
         raise HTTPException(
             status_code=500, detail=f"Failed to get access token: {str(e)}")
@@ -99,7 +124,8 @@ async def get_customer_by_phone(phone):
             "ST-App-Key": APP_ID,
             "Content-Type": "application/json",
         }
-        response_customers = requests.get(url_customers, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response_customers = await client.get(url_customers, headers=headers)
 
         if response_customers.status_code == 200:
             customers_data_json = response_customers.json()
@@ -108,21 +134,18 @@ async def get_customer_by_phone(phone):
                 print("Error: No customers found by phone.")
                 return {"error": "Customer not found by phone."}
 
-            print(customers_data_json["data"][0])
-            print(customers_data_json["data"][1])
             customer_data = customers_data_json["data"][0]
             customer = {
                 "id": customer_data.get("id"),
                 "name": customer_data.get("name")
             }
-            print("Customer found by phone✅")
+            print("Customer found by phone ✅")
             return customer
 
-        print(
-            f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
 
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         print(f"Error getting client: {e}")
         return {"error": "Error when making external request."}
 
@@ -143,7 +166,6 @@ async def create_customer(customer: utils.CustomerCreateRequest):
             print("Error: Customer name and number are required.")
             return {"error": "Customer name and number are required."}
 
-        # Definir la dirección si no está completa
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
         else:
@@ -154,7 +176,6 @@ async def create_customer(customer: utils.CustomerCreateRequest):
             location.address.country = location.address.country or "USA"
             location.address.state = location.address.state or "SC"
 
-        # Construcción del payload
         payload = {
             "name": customer.name,
             "type": customer.type,
@@ -179,80 +200,62 @@ async def create_customer(customer: utils.CustomerCreateRequest):
             ]
         }
 
-        response = requests.post(url, headers=headers, json=payload)
-        print("Response Status Code:", response.status_code)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            print("Response Status Code:", response.status_code)
 
-        if response.status_code != 200:
-            print(f"Error creating customer: {response.text}")
-            return {"error": f"Failed to create customer: {response.text}"}
+            if response.status_code != 200:
+                print(f"Error creating customer: {response.text}")
+                return {"error": f"Failed to create customer: {response.text}"}
 
-        data = response.json()
-        customer_id = data.get("id")
-        location_id = data.get("locations", [{}])[0].get("id")
-
-        if not customer_id or not location_id:
-            print("Error: Customer or Location ID missing in API response.")
-            return {"error": "Customer or Location ID missing in API response."}
-
-        if response.status_code == 200:
-            print("Created customer successfully ✅")
             data = response.json()
             customer_id = data.get("id")
-            location_id = data.get("locations")[0].get("id")
-            print({"customer_id": customer_id, "location_id": location_id})
+            location_id = data.get("locations", [{}])[0].get("id")
 
-            # Ahora, agregar los datos de contacto
-            print("Adding contact data to customer")
+            if not customer_id or not location_id:
+                print("Error: Customer or Location ID missing in API response.")
+                return {"error": "Customer or Location ID missing in API response."}
+
+            print("Created customer successfully ✅")
+            print({"customer_id": customer_id, "location_id": location_id})
 
             contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
 
-            # Primero, crea el contacto con el número móvil si está disponible
             if customer.number:
-                # Elimina espacios, guiones, paréntesis, etc.
                 clean_number = re.sub(r"\D", "", customer.number)
-
-                contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
                 mobile_payload = {
                     "type": "MobilePhone",
                     "value": clean_number,
                     "memo": "Customer phone number"
                 }
-
-                response_mobile = requests.post(
-                    contact_url, headers=headers, json=mobile_payload)
+                response_mobile = await client.post(contact_url, headers=headers, json=mobile_payload)
                 if response_mobile.status_code == 200:
                     print("Mobile contact data added successfully ✅")
                 else:
-                    print(
-                        f"Error adding mobile contact data: {response_mobile.text}")
+                    print(f"Error adding mobile contact data: {response_mobile.text}")
                     raise HTTPException(
                         status_code=response_mobile.status_code,
                         detail=f"Failed to add mobile contact data: {response_mobile.text}",
                     )
 
-            # Luego, crea el contacto con el correo electrónico si está disponible
             if customer.email:
-                contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
                 email_payload = {
-                    "type": "Email",  # Tipo: correo electrónico
-                    "value": customer.email,  # El valor del correo electrónico
-                    "memo": "Customer email"  # (Opcional) Nota descriptiva
+                    "type": "Email",
+                    "value": customer.email,
+                    "memo": "Customer email"
                 }
-
-                response_email = requests.post(
-                    contact_url, headers=headers, json=email_payload)
+                response_email = await client.post(contact_url, headers=headers, json=email_payload)
                 if response_email.status_code == 200:
                     print("Email contact data added successfully ✅")
                 else:
-                    print(
-                        f"Error adding email contact data: {response_email.text}")
+                    print(f"Error adding email contact data: {response_email.text}")
                     raise HTTPException(
                         status_code=response_email.status_code,
                         detail=f"Failed to add email contact data: {response_email.text}",
                     )
 
-            print("Customer created successfully with contact data added ✅")
-            return {"customerId": customer_id, "locationId": location_id}
+        print("Customer created successfully with contact data added ✅")
+        return {"customerId": customer_id, "locationId": location_id}
     except ValueError:
         print({"error": "Failed to create customer."})
 
@@ -309,11 +312,12 @@ async def check_availability_time(time, business_units, job_type):
         }
 
         try:
-            response = requests.post(
-                f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
-                headers=headers,
-                json=payload
-            )
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
+                    headers=headers,
+                    json=payload
+                )
 
             if response.status_code == 200:
                 data = response.json()
@@ -328,10 +332,9 @@ async def check_availability_time(time, business_units, job_type):
                 else:
                     print(f"No slots on attempt {attempt + 1}, retrying...")
             else:
-                print(
-                    f"❌ Error in API response: {response.status_code} {response.text}")
+                print(f"❌ Error in API response: {response.status_code} {response.text}")
 
-        except Exception as e:
+        except httpx.RequestError as e:
             print(f"❌ Exception occurred: {str(e)}")
 
     print(f"No available slots found after 5 attempts.")
@@ -340,7 +343,6 @@ async def check_availability_time(time, business_units, job_type):
 
 async def get_technicians_by_businessUnitId(businessUnitId):
     print(f"Getting technicians for Business Unit ID: {businessUnitId}...")
-    technicians = []
 
     try:
         url_technicians = f"https://api.servicetitan.io/settings/v2/tenant/{TENANT_ID}/technicians"
@@ -351,32 +353,25 @@ async def get_technicians_by_businessUnitId(businessUnitId):
             "Content-Type": "application/json",
         }
 
-        response_technicians = requests.get(url_technicians, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response_technicians = await client.get(url_technicians, headers=headers)
 
         if response_technicians.status_code == 200:
             print("Technicians fetched successfully.")
             response_data = response_technicians.json()
-
-            # Filtrar los técnicos según el businessUnitId
             technicians = [
                 tech for tech in response_data.get("data", []) if tech.get("businessUnitId") == businessUnitId
             ]
-
             if technicians:
-                print(
-                    f"Found {len(technicians)} technicians for Business Unit ID {businessUnitId}.")
+                print(f"Found {len(technicians)} technicians for Business Unit ID {businessUnitId}.")
             else:
-                print(
-                    f"No technicians found for Business Unit ID {businessUnitId}.")
-
+                print(f"No technicians found for Business Unit ID {businessUnitId}.")
             return technicians
-
         else:
-            print(
-                f"Error fetching technicians. Status Code: {response_technicians.status_code}")
+            print(f"Error fetching technicians. Status Code: {response_technicians.status_code}")
             return {"error": "Failed to retrieve technicians."}
 
-    except Exception as e:
+    except httpx.RequestError as e:
         print(f"Error occurred: {str(e)}")
         return {"error": "Checking technicians by business unit failed."}
 
@@ -503,7 +498,8 @@ async def find_customer(data: utils.FindCustomerToolRequest):
             "ST-App-Key": APP_ID,
             "Content-Type": "application/json",
         }
-        response_customers = requests.get(url_customers, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response_customers = await client.get(url_customers, headers=headers)
         if response_customers.status_code == 200:
             customers_data_json = response_customers.json()
             customers_list = customers_data_json.get("data", [])
@@ -519,10 +515,9 @@ async def find_customer(data: utils.FindCustomerToolRequest):
             ]
             print(f"Found {len(customers)} customers by phone ✅")
             return customers
-        print(
-            f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
+        print(f"Error: Unexpected response {response_customers.status_code} - {response_customers.text}")
         return {"error": f"Unexpected response status: {response_customers.status_code}"}
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         print(f"Error getting customers: {e}")
         return {"error": "Error when making external request."}
 
@@ -547,7 +542,8 @@ async def get_customer_locations(data: utils.FindAppointmentToolRequest):
             "Content-Type": "application/json",
         }
         url_location = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations?customerId={customer_id}"
-        response_location = requests.get(url_location, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response_location = await client.get(url_location, headers=headers)
 
         if response_location.status_code == 200:
             locations_data = response_location.json().get("data", [])
@@ -604,7 +600,8 @@ async def create_location(data: utils.CreateLocationToolRequest):
     }
 
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
-    response = requests.post(url, headers=headers, json=payload)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(url, headers=headers, json=payload)
 
     if response.status_code != 200:
         print(f"Error creating location: {response.text}")
@@ -673,7 +670,8 @@ async def check_availability(data: utils.BookingRequest):
     print("Checking business unit...")
     try:
         url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
-        response_jobTypes = requests.get(url_jobTypes, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response_jobTypes = await client.get(url_jobTypes, headers=headers)
 
         if response_jobTypes.status_code == 200:
             job_types_json = response_jobTypes.json()
@@ -723,6 +721,10 @@ async def create_job(data: utils.JobCreateToolRequest):
     data = args_obj
 
     try:
+        if not data.locationId:
+            logger.error(f"[createJob] ❌ locationId is missing. customerId={data.customerId}. Agent must call /getCustomerLocations first.")
+            return {"error": "locationId is required. Please call getCustomerLocations first to get the correct locationId for this customer."}
+
         access_token = await get_access_token()
         headers = {
             "Authorization": access_token,
@@ -763,23 +765,30 @@ async def create_job(data: utils.JobCreateToolRequest):
 
         # Enviar request a ServiceTitan
         url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-        response = requests.post(url, headers=headers, json=payload)
+        print(f"[createJob] Payload enviado a ServiceTitan: {json.dumps(payload, indent=2)}")
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
+
+        print(f"[createJob] Status code: {response.status_code}")
+        print(f"[createJob] Response body: {response.text}")
 
         if response.status_code != 200:
-            print(
-                f"Error in response: {response.status_code}, {response.text}")
+            print(f"[createJob] ❌ Error creando job: {response.status_code} - {response.text}")
             return {"error": f"Failed to create job: {response.text}"}
 
         job_data = response.json()
-        print("createJob request completed ✅")
+        job_id = job_data.get("id")
+        appointment_id = job_data.get("lastAppointmentId")
+        print(f"[createJob] ✅ Job creado: jobId={job_id}, appointmentId={appointment_id}")
         return {
             "status": "Job booked",
-            "jobId": job_data.get("id"),
-            "appointmentId": job_data.get("lastAppointmentId")
+            "jobId": job_id,
+            "appointmentId": appointment_id
         }
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request error: {str(e)}")
+    except httpx.RequestError as e:
+        print(f"[createJob] ❌ Request error: {str(e)}")
         return {"error": "Unexpected request error"}
 
 
@@ -804,41 +813,41 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
         "Content-Type": "application/json",
     }
 
-    # Mapear AppointmentStatus -> JobStatus
     STATUS_MAP = {
         "Scheduled": "Scheduled",
         "Dispatched": "Dispatched",
         "Working": "InProgress",
     }
 
-    def fetch_jobs_by_status(job_status: str):
+    def to_eastern(ts: str) -> str:
+        if ts.endswith("Z"):
+            ts = ts.replace("Z", "+00:00")
+        dt_utc = datetime.fromisoformat(ts)
+        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+
+    async def fetch_jobs_by_status(job_status: str):
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
             f"?customerId={customer_id}&jobStatus={job_status}"
         )
-        resp = requests.get(url, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
         if resp.status_code == 200:
             return resp.json().get("data", [])
         print(f"Error fetching jobs with status {job_status}: {resp.text}")
         return []
 
-    def fetch_appointments_for_job(job: dict, appointment_status: str):
+    async def fetch_appointments_for_job(job: dict, appointment_status: str):
         job_id = job.get("id")
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
             f"?jobId={job_id}&status={appointment_status}"
         )
-        resp = requests.get(url, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
             print(f"Error fetching appointments for job {job_id}: {resp.text}")
             return []
-
-        def to_eastern(ts: str) -> str:
-            if ts.endswith("Z"):
-                ts = ts.replace("Z", "+00:00")
-            dt_utc = datetime.fromisoformat(ts)
-            return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
-
         appointments = []
         for a in resp.json().get("data", []):
             appointments.append({
@@ -853,31 +862,33 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
             })
         return appointments
 
-    # Contenedores para cada tipo de appointment
+    # Fetch los 3 estados en paralelo
+    scheduled_jobs, dispatched_jobs, working_jobs = await asyncio.gather(
+        fetch_jobs_by_status("Scheduled"),
+        fetch_jobs_by_status("Dispatched"),
+        fetch_jobs_by_status("InProgress"),
+    )
+    print(f"Found {len(scheduled_jobs)} Scheduled, {len(dispatched_jobs)} Dispatched, {len(working_jobs)} Working jobs")
+
+    # Fetch appointments en paralelo para todos los jobs
+    all_tasks = (
+        [(job, "Scheduled") for job in scheduled_jobs] +
+        [(job, "Dispatched") for job in dispatched_jobs] +
+        [(job, "Working") for job in working_jobs]
+    )
+    all_results = await asyncio.gather(*[fetch_appointments_for_job(job, status) for job, status in all_tasks])
+
     scheduled_appointments = []
     dispatched_appointments = []
     working_appointments = []
 
-    # Recorremos todos los estados posibles
-    for appointment_status, target_list in [
-        ("Scheduled", scheduled_appointments),
-        ("Dispatched", dispatched_appointments),
-        ("Working", working_appointments),
-    ]:
-        job_status = STATUS_MAP.get(appointment_status)
-        if not job_status:
-            print(
-                f"⚠️ Appointment status '{appointment_status}' not mapped to any Job status.")
-            continue
-
-        jobs = fetch_jobs_by_status(job_status)
-        print(
-            f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
-
-        for job in jobs:
-            job_appointments = fetch_appointments_for_job(
-                job, appointment_status)
-            target_list.extend(job_appointments)
+    idx = 0
+    for job in scheduled_jobs:
+        scheduled_appointments.extend(all_results[idx]); idx += 1
+    for job in dispatched_jobs:
+        dispatched_appointments.extend(all_results[idx]); idx += 1
+    for job in working_jobs:
+        working_appointments.extend(all_results[idx]); idx += 1
 
     # Si no hay nada encontrado
     if not any([
@@ -917,41 +928,41 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         "Content-Type": "application/json",
     }
 
-    # Mapeo de status de Appointments → Jobs
     STATUS_MAP = {
         "Hold": "Hold",
-        "Done": "Completed",     # Appointment status → Job status
+        "Done": "Completed",
         "Canceled": "Canceled"
     }
 
-    def fetch_jobs_by_status(job_status: str):
+    def to_eastern_past(ts: str) -> str:
+        if ts.endswith("Z"):
+            ts = ts.replace("Z", "+00:00")
+        dt_utc = datetime.fromisoformat(ts)
+        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+
+    async def fetch_jobs_by_status_past(job_status: str):
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
             f"?customerId={customer_id}&jobStatus={job_status}"
         )
-        resp = requests.get(url, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
         if resp.status_code == 200:
             return resp.json().get("data", [])
         print(f"Error fetching jobs with status {job_status}: {resp.text}")
         return []
 
-    def fetch_appointments_for_job(job: dict, appointment_status: str):
+    async def fetch_appointments_for_job_past(job: dict, appointment_status: str):
         job_id = job.get("id")
         url = (
             f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/appointments"
             f"?jobId={job_id}&status={appointment_status}"
         )
-        resp = requests.get(url, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
             print(f"Error fetching appointments for job {job_id}: {resp.text}")
             return []
-
-        def to_eastern(ts: str) -> str:
-            if ts.endswith("Z"):
-                ts = ts.replace("Z", "+00:00")
-            dt_utc = datetime.fromisoformat(ts)
-            return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
-
         appointments = []
         for a in resp.json().get("data", []):
             appointments.append({
@@ -961,29 +972,36 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
                 "summary": job.get("summary", ""),
                 "employeeId": job.get("jobGeneratedLeadSource", {}).get("employeeId"),
                 "appointmentId": a.get("id"),
-                "start": to_eastern(a.get("start")),
-                "end": to_eastern(a.get("end")),
+                "start": to_eastern_past(a.get("start")),
+                "end": to_eastern_past(a.get("end")),
             })
         return appointments
+
+    hold_jobs, done_jobs, canceled_jobs = await asyncio.gather(
+        fetch_jobs_by_status_past("Hold"),
+        fetch_jobs_by_status_past("Completed"),
+        fetch_jobs_by_status_past("Canceled"),
+    )
+    print(f"Found {len(hold_jobs)} Hold, {len(done_jobs)} Done, {len(canceled_jobs)} Canceled jobs")
+
+    all_past_tasks = (
+        [(job, "Hold") for job in hold_jobs] +
+        [(job, "Done") for job in done_jobs] +
+        [(job, "Canceled") for job in canceled_jobs]
+    )
+    all_past_results = await asyncio.gather(*[fetch_appointments_for_job_past(job, status) for job, status in all_past_tasks])
 
     hold_appointments = []
     done_appointments = []
     canceled_appointments = []
 
-    for appointment_status, target_list in [
-        ("Hold", hold_appointments),
-        ("Done", done_appointments),
-        ("Canceled", canceled_appointments),
-    ]:
-        job_status = STATUS_MAP[appointment_status]
-        jobs = fetch_jobs_by_status(job_status)
-        print(
-            f"Found {len(jobs)} jobs with jobStatus '{job_status}' for appointmentStatus '{appointment_status}'")
-
-        for job in jobs:
-            job_appointments = fetch_appointments_for_job(
-                job, appointment_status)
-            target_list.extend(job_appointments)
+    idx = 0
+    for job in hold_jobs:
+        hold_appointments.extend(all_past_results[idx]); idx += 1
+    for job in done_jobs:
+        done_appointments.extend(all_past_results[idx]); idx += 1
+    for job in canceled_jobs:
+        canceled_appointments.extend(all_past_results[idx]); idx += 1
 
     if not any([hold_appointments, done_appointments, canceled_appointments]):
         print("No past appointments found.")
@@ -1033,7 +1051,7 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
                 data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
             end_date = start_date + timedelta(days=42)
             return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         print(f"Error getting slots: {e}")
         return {"error": "Error when requesting availability."}
 
@@ -1056,26 +1074,25 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     new_schedule = data.newSchedule
 
     # 1. Unassign technician if provided
+    st_headers = {
+        "Authorization": access_token,
+        "ST-App-Key": APP_ID,
+        "Content-Type": "application/json",
+    }
+
     if technician_id:
-        tech_ids = technician_id if isinstance(
-            technician_id, list) else [technician_id]
-        print(
-            f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
+        tech_ids = technician_id if isinstance(technician_id, list) else [technician_id]
+        print(f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
         url_unassign = (
             f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}"
             "/appointment-assignments/unassign-technicians"
         )
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
         unassign_payload = {
             "jobAppointmentId": appointment_id,
             "technicianIds": tech_ids
         }
-        resp_unassign = requests.patch(
-            url_unassign, json=unassign_payload, headers=headers)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp_unassign = await client.patch(url_unassign, json=unassign_payload, headers=st_headers)
         if resp_unassign.status_code == 200:
             print("Technician unassigned successfully ✅")
         else:
@@ -1094,24 +1111,19 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     end_utc = end_dt.isoformat().replace("+00:00", "Z")
 
     # 5. Send the reschedule PATCH
-    print(
-        f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
+    print(f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
     url_resch = (
         f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}"
         f"/appointments/{appointment_id}/reschedule"
     )
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
     resch_payload = {
         "start": start_utc,
         "end": end_utc,
         "arrivalWindowStart": start_utc,
         "arrivalWindowEnd": end_utc
     }
-    resp = requests.patch(url_resch, json=resch_payload, headers=headers)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.patch(url_resch, json=resch_payload, headers=st_headers)
 
     if resp.status_code == 200:
         print("rescheduleAppointment request completed ✅")
@@ -1159,7 +1171,8 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
     }
 
     print(f"Cancelling job {job_id} with reason {reason_id}...")
-    resp = requests.put(url, headers=headers, json=payload)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.put(url, headers=headers, json=payload)
     print(f"External API responded: {resp.status_code}")
 
     if resp.status_code == 200:
@@ -1203,9 +1216,9 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
 
     print(f"Fetching current summary for job ID {job_id}...")
 
-    # Get current job info (to retrieve current summary)
     job_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
-    job_resp = requests.get(job_url, headers=headers)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        job_resp = await client.get(job_url, headers=headers)
 
     if job_resp.status_code != 200:
         return {
@@ -1218,14 +1231,14 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     current_summary = job_data.get("summary", "")
 
     new_summary = f"<p>{info}</p>"
-    updated_summary = f"{current_summary}\n\n{new_summary}".strip(
-    ) if current_summary else new_summary
+    updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
 
     print(f"Updating summary for job ID {job_id}...")
     patch_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
     patch_payload = {"summary": updated_summary}
 
-    patch_resp = requests.patch(patch_url, headers=headers, json=patch_payload)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        patch_resp = await client.patch(patch_url, headers=headers, json=patch_payload)
 
     if patch_resp.status_code == 200:
         print("updateJobSummary completed ✅")
@@ -1276,8 +1289,78 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     }
 
 
-# download fastapi: pip install "fastapi[standard]"
-# download dotenv: pip install python-dotenv (may come pre-installed in newer Python versions)
-# download pytz: pip install pytz
-# download pandas: pip install pandas
+@app.post("/getDirectLine")
+async def get_direct_line(data: utils.DirectLineToolRequest):
+    print("Processing getDirectLine request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.DirectLineRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    name = args_obj.name.strip().lower()
+
+    for key, phone in DIRECT_LINES.items():
+        if key in name:
+            print(f"Direct line found for '{key}' ✅")
+            return {"name": key.capitalize(), "phone": phone}
+
+    print(f"No direct line found for '{name}'")
+    return {"message": "We don't have contact information for that person. Is there anything else I can help you with?"}
+
+
+def _send_gmail(subject: str, body: str):
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        print("❌ Gmail credentials not configured (GMAIL_USER / GMAIL_APP_PASSWORD missing)")
+        return False
+    try:
+        msg = MIMEMultipart()
+        msg["From"] = GMAIL_USER
+        msg["To"] = OFFICE_EMAIL
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"❌ Error sending email: {e}")
+        return False
+
+
+@app.post("/sendOfficeMessage")
+async def send_office_message(data: utils.OfficeMessageToolRequest):
+    print("Processing sendOfficeMessage request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.OfficeMessageRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    caller_info = ""
+    if args_obj.callerName:
+        caller_info += f"Caller: {args_obj.callerName}\n"
+    if args_obj.callerPhone:
+        caller_info += f"Phone: {args_obj.callerPhone}\n"
+
+    subject = "Harmony - Customer Question Unanswered"
+    body = (
+        f"A caller had a question Harmony could not answer.\n\n"
+        f"{caller_info}"
+        f"Question: {args_obj.question}\n\n"
+        f"Please follow up with the customer."
+    )
+
+    loop = asyncio.get_event_loop()
+    success = await loop.run_in_executor(None, _send_gmail, subject, body)
+
+    if success:
+        print("sendOfficeMessage completed ✅")
+        return {"status": "Message sent to office successfully"}
+    else:
+        print("sendOfficeMessage failed ❌")
+        return {"error": "Failed to send message. Please try again or call the office directly."}
+
+
 # start the server: fastapi dev main.py

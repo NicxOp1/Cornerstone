@@ -80,7 +80,7 @@ class FindCustomerToolRequest(ToolRequestWrapper[CustomerFindRequest]):
 
 class JobCreateRequest(BaseModel):
     customerId: int = Field(..., description="ID of the customer")
-    locationId: int = Field(..., description="ID of the location")
+    locationId: Optional[int] = Field(None, description="ID of the location")
     jobTypeId: int = Field(..., description="ID of the job type")
     priority: str = Field(..., description="Priority of the job request")
     businessUnitId: int = Field(..., description="ID of the business unit")
@@ -176,6 +176,30 @@ class JobCreateRequestOutbound(BaseModel):
     summary: str = Field(..., description="Brief summary of the job request")
 
 class JobCreateToolRequestOutbound(ToolRequestWrapper[JobCreateRequestOutbound]):
+    pass
+
+
+# =============================================================================
+# DIRECT LINE
+# =============================================================================
+
+class DirectLineRequest(BaseModel):
+    name: str = Field(..., description="Name of the person the caller is asking for")
+
+class DirectLineToolRequest(ToolRequestWrapper[DirectLineRequest]):
+    pass
+
+
+# =============================================================================
+# OFFICE MESSAGE
+# =============================================================================
+
+class OfficeMessageRequest(BaseModel):
+    question: str = Field(..., description="The question or message Harmony could not answer")
+    callerName: Optional[str] = Field(None, description="Name of the caller if known")
+    callerPhone: Optional[str] = Field(None, description="Phone number of the caller if known")
+
+class OfficeMessageToolRequest(ToolRequestWrapper[OfficeMessageRequest]):
     pass
 
 
