@@ -180,6 +180,39 @@ class JobCreateToolRequestOutbound(ToolRequestWrapper[JobCreateRequestOutbound])
 
 
 # =============================================================================
+# CALL SESSION
+# =============================================================================
+
+class StoreCallDataRequest(BaseModel):
+    callId: str = Field(..., description="Unique call ID from Retell")
+    field: str = Field(..., description="Field name to store (e.g. customerName, address, serviceType)")
+    value: str = Field(..., description="Value for the field")
+
+class StoreCallDataToolRequest(ToolRequestWrapper[StoreCallDataRequest]):
+    pass
+
+class GetCallDataRequest(BaseModel):
+    callId: str = Field(..., description="Unique call ID from Retell")
+
+class GetCallDataToolRequest(ToolRequestWrapper[GetCallDataRequest]):
+    pass
+
+class UpdateCallFieldRequest(BaseModel):
+    callId: str = Field(..., description="Unique call ID from Retell")
+    field: str = Field(..., description="Field name to update")
+    value: str = Field(..., description="New value for the field")
+
+class UpdateCallFieldToolRequest(ToolRequestWrapper[UpdateCallFieldRequest]):
+    pass
+
+class ClearCallDataRequest(BaseModel):
+    callId: str = Field(..., description="Unique call ID from Retell")
+
+class ClearCallDataToolRequest(ToolRequestWrapper[ClearCallDataRequest]):
+    pass
+
+
+# =============================================================================
 # DIRECT LINE
 # =============================================================================
 

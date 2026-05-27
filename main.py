@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 import httpx
 import asyncio
 import smtplib
+import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import utils as utils
@@ -40,6 +41,42 @@ DIRECT_LINES = {
     "john": "6033274334",
     "josh": "6033275618",
 }
+
+# =============================================================================
+# CALL SESSION STORE (in-memory, TTL 2 hours)
+# =============================================================================
+
+CALL_SESSION_TTL = 7200  # 2 hours in seconds
+
+# { callId: { "_ts": timestamp, "field": "value", ... } }
+call_sessions: dict = {}
+
+# Human-readable labels for each field Harmony collects
+FIELD_LABELS = {
+    "customerName":   "Name",
+    "customerPhone":  "Phone number",
+    "street":         "Street address",
+    "city":           "City",
+    "state":          "State",
+    "zip":            "ZIP code",
+    "serviceType":    "Service type",
+    "preferredDate":  "Appointment date",
+    "preferredTime":  "Appointment time",
+    "summary":        "Additional notes",
+    "customerId":     "Customer ID",
+    "locationId":     "Location ID",
+    "businessUnitId": "Business unit",
+    "jobTypeId":      "Job type",
+    "campaignId":     "Campaign",
+}
+
+def _cleanup_sessions():
+    """Remove sessions older than CALL_SESSION_TTL."""
+    now = time.time()
+    expired = [k for k, v in call_sessions.items()
+               if now - v.get("_ts", 0) > CALL_SESSION_TTL]
+    for k in expired:
+        del call_sessions[k]
 
 app = FastAPI()
 
@@ -1287,6 +1324,99 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     return {
         'available_slots': available_slots
     }
+
+
+@app.post("/storeCallData")
+async def store_call_data(data: utils.StoreCallDataToolRequest):
+    print("Processing storeCallData request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.StoreCallDataRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    _cleanup_sessions()
+
+    call_id = args_obj.callId
+    if call_id not in call_sessions:
+        call_sessions[call_id] = {"_ts": time.time()}
+
+    call_sessions[call_id][args_obj.field] = args_obj.value
+    call_sessions[call_id]["_ts"] = time.time()
+
+    print(f"[storeCallData] callId={call_id} | {args_obj.field} = {args_obj.value} ✅")
+    return {"status": "stored", "field": args_obj.field, "value": args_obj.value}
+
+
+@app.post("/getCallData")
+async def get_call_data(data: utils.GetCallDataToolRequest):
+    print("Processing getCallData request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.GetCallDataRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    call_id = args_obj.callId
+    session = call_sessions.get(call_id, {})
+
+    # Build ordered field list (skip internal keys starting with _)
+    fields = []
+    for field, label in FIELD_LABELS.items():
+        value = session.get(field)
+        if value:
+            fields.append({"field": field, "label": label, "value": value})
+
+    if not fields:
+        print(f"[getCallData] callId={call_id} — no data found")
+        return {"fields": [], "readableScript": "I don't have any stored information for this call yet."}
+
+    # Build readable script Harmony reads aloud
+    readable = ". ".join([f"{f['label']}: {f['value']}" for f in fields])
+
+    print(f"[getCallData] callId={call_id} — {len(fields)} fields ✅")
+    return {"fields": fields, "readableScript": readable}
+
+
+@app.post("/updateCallField")
+async def update_call_field(data: utils.UpdateCallFieldToolRequest):
+    print("Processing updateCallField request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.UpdateCallFieldRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    call_id = args_obj.callId
+    if call_id not in call_sessions:
+        print(f"[updateCallField] callId={call_id} not found, creating new session")
+        call_sessions[call_id] = {"_ts": time.time()}
+
+    old_value = call_sessions[call_id].get(args_obj.field, "—")
+    call_sessions[call_id][args_obj.field] = args_obj.value
+    call_sessions[call_id]["_ts"] = time.time()
+
+    print(f"[updateCallField] callId={call_id} | {args_obj.field}: '{old_value}' → '{args_obj.value}' ✅")
+    return {"status": "updated", "field": args_obj.field, "oldValue": old_value, "newValue": args_obj.value}
+
+
+@app.post("/clearCallData")
+async def clear_call_data(data: utils.ClearCallDataToolRequest):
+    print("Processing clearCallData request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.ClearCallDataRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    call_id = args_obj.callId
+    if call_id in call_sessions:
+        del call_sessions[call_id]
+        print(f"[clearCallData] callId={call_id} cleared ✅")
+        return {"status": "cleared"}
+
+    print(f"[clearCallData] callId={call_id} not found (already cleared or expired)")
+    return {"status": "not_found"}
 
 
 @app.post("/getDirectLine")
