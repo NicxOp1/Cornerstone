@@ -211,7 +211,7 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
         if hasattr(location, 'address') and location.address:
             location.address.country = location.address.country or "USA"
-            location.address.state = location.address.state or "SC"
+            location.address.state = location.address.state or "MA"
 
         payload = {
             "name": customer.name,
@@ -298,7 +298,7 @@ async def create_customer(customer: utils.CustomerCreateRequest):
         return {"error": "Failed to create customer due to invalid data."}
 
 
-async def check_availability_time(time, business_units, job_type):
+async def check_availability_time(time, business_units, job_type, access_token=None):
     print("Checking availability time...")
 
     if isinstance(business_units, int):
@@ -321,7 +321,8 @@ async def check_availability_time(time, business_units, job_type):
         print(f"Invalid time format: {corrected_time}")
         return []
 
-    access_token = await get_access_token()
+    if not access_token:
+        access_token = await get_access_token()
     headers = {
         "Authorization": access_token,
         "ST-App-Key": APP_ID,
@@ -424,27 +425,13 @@ def read_root():
 @app.post("/getTime")
 async def get_current_boston_time():
     print("Processing getTime request... 🔄")
-    utc_now = datetime.now(timezone.utc)
+    eastern = pytz.timezone("America/New_York")
+    now_eastern = datetime.now(eastern)
 
-    # Hora de Boston (Eastern Time - EST/EDT)
-    boston_offset = timedelta(hours=-5)  # UTC-5 (EST) por defecto
-    boston_time = utc_now + boston_offset
-
-    # Verificar si es horario de verano (DST)
-    # Segundo domingo de marzo
-    start_dst = datetime(utc_now.year, 3, 10, 2, tzinfo=timezone.utc)
-    # Primer domingo de noviembre
-    end_dst = datetime(utc_now.year, 11, 3, 2, tzinfo=timezone.utc)
-
-    if start_dst <= utc_now < end_dst:
-        boston_time += timedelta(hours=1)  # UTC-4 en horario de verano (EDT)
-
-    print(f"Current UTC time: {utc_now.strftime('%Y-%m-%dT%H:%M:%SZ')}")
-    print(f"Current Boston time: {boston_time.strftime('%Y-%m-%dT%H:%M:%S')}")
-
+    print(f"Current Boston time: {now_eastern.strftime('%Y-%m-%dT%H:%M:%S')}")
     print("getTime request completed ✅")
 
-    return boston_time.strftime("%Y-%m-%dT%H:%M:%S")
+    return now_eastern.strftime("%Y-%m-%dT%H:%M:%S")
 
 
 @app.post("/checkWorkArea")
@@ -476,7 +463,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
         return {"error": "The direction is not valid."}
 
     url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-    resp = requests.get(url_geocode)
+    resp = await asyncio.to_thread(requests.get, url_geocode)
     if resp.status_code != 200:
         print("error: no response from geocode api")
         return {"error": "Failed to fetch geolocation data."}
@@ -676,8 +663,8 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 
         print("createCustomer request completed ✅")
         return {
-            "customerId": response.get("customer_id") or response.get("customerId"),
-            "locationId": response.get("location_id") or response.get("locationId"),
+            "customerId": response.get("customerId"),
+            "locationId": response.get("locationId"),
             "status": "created"
         }
 
@@ -730,7 +717,7 @@ async def check_availability(data: utils.BookingRequest):
     available_slots = []
 
     try:
-        available_slots = await check_availability_time(data.time, business_units, data.jobTypeId)
+        available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
 
         if not available_slots:
             print("No available slots found.")
@@ -851,12 +838,6 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
         "Content-Type": "application/json",
     }
 
-    STATUS_MAP = {
-        "Scheduled": "Scheduled",
-        "Dispatched": "Dispatched",
-        "Working": "InProgress",
-    }
-
     def to_eastern(ts: str) -> str:
         if ts.endswith("Z"):
             ts = ts.replace("Z", "+00:00")
@@ -964,12 +945,6 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
         "Authorization": access_token,
         "ST-App-Key": APP_ID,
         "Content-Type": "application/json",
-    }
-
-    STATUS_MAP = {
-        "Hold": "Hold",
-        "Done": "Completed",
-        "Canceled": "Canceled"
     }
 
     def to_eastern_past(ts: str) -> str:
@@ -1305,8 +1280,6 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
         args_obj = data.args
 
     data = args_obj
-
-    await get_technicians_by_businessUnitId(5878155)
 
     print("Checking availability...")
 
