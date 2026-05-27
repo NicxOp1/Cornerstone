@@ -293,8 +293,9 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
         print("Customer created successfully with contact data added ✅")
         return {"customerId": customer_id, "locationId": location_id}
-    except ValueError:
-        print({"error": "Failed to create customer."})
+    except ValueError as e:
+        print(f"[create_customer] ValueError: {e}")
+        return {"error": "Failed to create customer due to invalid data."}
 
 
 async def check_availability_time(time, business_units, job_type):
@@ -714,13 +715,13 @@ async def check_availability(data: utils.BookingRequest):
             job_types_json = response_jobTypes.json()
             job_types = {job_type["id"]: job_type["businessUnitIds"]
                          for job_type in job_types_json["data"]}
-
-        business_units = job_types.get(data.jobTypeId, None)
-
-        if business_units:
-            pass
+            business_units = job_types.get(data.jobTypeId, None)
+            if not business_units:
+                print(f"Job Type {data.jobTypeId} not found in response.")
+                return {"error": f"Job type {data.jobTypeId} not found. Cannot determine business unit."}
         else:
-            print(f"Job Type {data.jobTypeId} not found in response.")
+            print(f"❌ Failed to fetch job types: {response_jobTypes.status_code} - {response_jobTypes.text}")
+            return {"error": "Could not retrieve job type information. Please try again."}
 
         print("Business Unit Checked ✅")
     except ValueError:
@@ -1482,8 +1483,7 @@ async def send_office_message(data: utils.OfficeMessageToolRequest):
         f"Please follow up with the customer."
     )
 
-    loop = asyncio.get_event_loop()
-    success = await loop.run_in_executor(None, _send_gmail, subject, body)
+    success = await asyncio.to_thread(_send_gmail, subject, body)
 
     if success:
         print("sendOfficeMessage completed ✅")
