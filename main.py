@@ -1,6 +1,5 @@
-from datetime import datetime, date, timedelta, time, timezone
-from typing import Tuple, Dict
-from fastapi import FastAPI, Request, Response, HTTPException
+from datetime import datetime, timedelta, timezone
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 import httpx
@@ -376,7 +375,7 @@ async def check_availability_time(time, business_units, job_type, access_token=N
         except httpx.RequestError as e:
             print(f"❌ Exception occurred: {str(e)}")
 
-    print(f"No available slots found after 5 attempts.")
+    print("No available slots found after 5 attempts.")
     return []
 
 
