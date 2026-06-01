@@ -1299,8 +1299,22 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
     }
 
 
+async def _resolve_call_id(request: Request, args_obj):
+    """Get the Retell call_id from the request body's 'call' object,
+    falling back to whatever the agent passed in args."""
+    try:
+        body = await request.json()
+        call_obj = body.get("call") or {}
+        cid = call_obj.get("call_id") or body.get("call_id")
+        if cid:
+            return cid
+    except Exception:
+        pass
+    return getattr(args_obj, "callId", None)
+
+
 @app.post("/storeCallData")
-async def store_call_data(data: utils.StoreCallDataToolRequest):
+async def store_call_data(data: utils.StoreCallDataToolRequest, request: Request):
     print("Processing storeCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1310,7 +1324,11 @@ async def store_call_data(data: utils.StoreCallDataToolRequest):
 
     _cleanup_sessions()
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
+    if not call_id:
+        print("[storeCallData] ❌ Could not determine call ID.")
+        return {"error": "Could not determine the call ID for this session."}
+
     if call_id not in call_sessions:
         call_sessions[call_id] = {"_ts": time.time()}
 
@@ -1322,7 +1340,7 @@ async def store_call_data(data: utils.StoreCallDataToolRequest):
 
 
 @app.post("/getCallData")
-async def get_call_data(data: utils.GetCallDataToolRequest):
+async def get_call_data(data: utils.GetCallDataToolRequest, request: Request):
     print("Processing getCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1330,7 +1348,7 @@ async def get_call_data(data: utils.GetCallDataToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
     session = call_sessions.get(call_id, {})
 
     # Build ordered field list (skip internal keys starting with _)
@@ -1352,7 +1370,7 @@ async def get_call_data(data: utils.GetCallDataToolRequest):
 
 
 @app.post("/updateCallField")
-async def update_call_field(data: utils.UpdateCallFieldToolRequest):
+async def update_call_field(data: utils.UpdateCallFieldToolRequest, request: Request):
     print("Processing updateCallField request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1360,7 +1378,11 @@ async def update_call_field(data: utils.UpdateCallFieldToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
+    if not call_id:
+        print("[updateCallField] ❌ Could not determine call ID.")
+        return {"error": "Could not determine the call ID for this session."}
+
     if call_id not in call_sessions:
         print(f"[updateCallField] callId={call_id} not found, creating new session")
         call_sessions[call_id] = {"_ts": time.time()}
@@ -1374,7 +1396,7 @@ async def update_call_field(data: utils.UpdateCallFieldToolRequest):
 
 
 @app.post("/clearCallData")
-async def clear_call_data(data: utils.ClearCallDataToolRequest):
+async def clear_call_data(data: utils.ClearCallDataToolRequest, request: Request):
     print("Processing clearCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1382,8 +1404,8 @@ async def clear_call_data(data: utils.ClearCallDataToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
-    if call_id in call_sessions:
+    call_id = await _resolve_call_id(request, args_obj)
+    if call_id and call_id in call_sessions:
         del call_sessions[call_id]
         print(f"[clearCallData] callId={call_id} cleared ✅")
         return {"status": "cleared"}

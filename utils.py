@@ -183,7 +183,7 @@ class JobCreateToolRequestOutbound(ToolRequestWrapper[JobCreateRequestOutbound])
 # =============================================================================
 
 class StoreCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
     field: str = Field(..., description="Field name to store (e.g. customerName, address, serviceType)")
     value: str = Field(..., description="Value for the field")
 
@@ -191,13 +191,13 @@ class StoreCallDataToolRequest(ToolRequestWrapper[StoreCallDataRequest]):
     pass
 
 class GetCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
 
 class GetCallDataToolRequest(ToolRequestWrapper[GetCallDataRequest]):
     pass
 
 class UpdateCallFieldRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
     field: str = Field(..., description="Field name to update")
     value: str = Field(..., description="New value for the field")
 
@@ -205,7 +205,7 @@ class UpdateCallFieldToolRequest(ToolRequestWrapper[UpdateCallFieldRequest]):
     pass
 
 class ClearCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
 
 class ClearCallDataToolRequest(ToolRequestWrapper[ClearCallDataRequest]):
     pass
