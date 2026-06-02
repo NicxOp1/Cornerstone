@@ -227,9 +227,17 @@ class DirectLineToolRequest(ToolRequestWrapper[DirectLineRequest]):
 # =============================================================================
 
 class OfficeMessageRequest(BaseModel):
-    question: str = Field(..., description="The question or message Harmony could not answer")
+    # "Unanswered question" use case
+    question: Optional[str] = Field(None, description="The question or message Harmony could not answer")
     callerName: Optional[str] = Field(None, description="Name of the caller if known")
     callerPhone: Optional[str] = Field(None, description="Phone number of the caller if known")
+    # "Missed transfer / callback" notification use case
+    name: Optional[str] = Field(None, description="Caller's name")
+    number: Optional[str] = Field(None, description="Caller's phone number")
+    reason: Optional[str] = Field(None, description="Reason for the call or transfer")
+    callback: Optional[str] = Field(None, description="Preferred callback time")
+    email: Optional[str] = Field(None, description="Caller's email if known")
+    isEmergency: Optional[str] = Field(None, description="Whether the call is an emergency")
 
 class OfficeMessageToolRequest(ToolRequestWrapper[OfficeMessageRequest]):
     pass

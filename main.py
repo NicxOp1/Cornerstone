@@ -1463,18 +1463,44 @@ async def send_office_message(data: utils.OfficeMessageToolRequest):
     else:
         args_obj = data.args
 
-    caller_info = ""
-    if args_obj.callerName:
-        caller_info += f"Caller: {args_obj.callerName}\n"
-    if args_obj.callerPhone:
-        caller_info += f"Phone: {args_obj.callerPhone}\n"
+    # Merge both naming conventions (callerName/callerPhone and name/number)
+    name = args_obj.name or args_obj.callerName
+    phone = args_obj.number or args_obj.callerPhone
+    is_emergency = str(args_obj.isEmergency).strip().lower() in ("true", "yes", "1")
 
-    subject = "Harmony - Customer Question Unanswered"
+    # Build the email body from whatever fields are present
+    lines = []
+    if name:
+        lines.append(f"Name: {name}")
+    if phone:
+        lines.append(f"Phone: {phone}")
+    if args_obj.email:
+        lines.append(f"Email: {args_obj.email}")
+    if args_obj.reason:
+        lines.append(f"Reason: {args_obj.reason}")
+    if args_obj.callback:
+        lines.append(f"Preferred callback: {args_obj.callback}")
+    if args_obj.isEmergency is not None:
+        lines.append(f"Emergency: {'Yes' if is_emergency else 'No'}")
+    if args_obj.question:
+        lines.append(f"Question: {args_obj.question}")
+
+    if not any([args_obj.question, name, phone, args_obj.reason, args_obj.callback]):
+        print("sendOfficeMessage: no usable content provided ❌")
+        return {"error": "No message content provided."}
+
+    # Subject reflects the type of message
+    if is_emergency:
+        subject = "Harmony - URGENT: Emergency callback request"
+    elif args_obj.question:
+        subject = "Harmony - Customer Question Unanswered"
+    else:
+        subject = "Harmony - Callback / Message from caller"
+
     body = (
-        f"A caller had a question Harmony could not answer.\n\n"
-        f"{caller_info}"
-        f"Question: {args_obj.question}\n\n"
-        f"Please follow up with the customer."
+        "A message from Harmony (voice agent):\n\n"
+        + "\n".join(lines)
+        + "\n\nPlease follow up with the customer."
     )
 
     success = await asyncio.to_thread(_send_gmail, subject, body)
