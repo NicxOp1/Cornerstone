@@ -346,7 +346,7 @@ async def check_availability_time(time, business_units, job_type, access_token=N
             "endsOnOrBefore": ends_on_or_before,
             "businessUnitIds": business_units,
             "jobTypeId": job_type,
-            "skillBasedAvailability": True
+            "skillBasedAvailability": False
         }
 
         try:
