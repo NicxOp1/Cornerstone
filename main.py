@@ -42,6 +42,35 @@ DIRECT_LINES = {
 }
 
 # =============================================================================
+# JOB-TYPES CACHE (evita un round-trip a ST en cada checkAvailability)
+# =============================================================================
+
+_job_types_cache: dict = {"data": None, "ts": 0.0}
+_JOB_TYPES_TTL = 1800  # segundos (30 min)
+
+
+async def _get_job_types(headers: dict) -> dict:
+    """Devuelve {jobTypeId: [businessUnitId, ...]}. Cachea 30 min."""
+    now = time.time()
+    if _job_types_cache["data"] and now - _job_types_cache["ts"] < _JOB_TYPES_TTL:
+        print("[jobTypes] Cache hit ✅")
+        return _job_types_cache["data"]
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, headers=headers)
+
+    if resp.status_code != 200:
+        print(f"[jobTypes] ❌ Error {resp.status_code}: {resp.text[:200]}")
+        return {}
+
+    mapping = {jt["id"]: jt["businessUnitIds"] for jt in resp.json().get("data", [])}
+    _job_types_cache["data"] = mapping
+    _job_types_cache["ts"] = now
+    print(f"[jobTypes] Fetched and cached {len(mapping)} job types ✅")
+    return mapping
+
+# =============================================================================
 # CALL SESSION STORE (in-memory, TTL 2 hours)
 # =============================================================================
 
@@ -298,7 +327,13 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
 
 async def check_availability_time(time, business_units, job_type, access_token=None):
-    print("Checking availability time...")
+    """
+    Devuelve:
+      - list[dict]  si encontró slots disponibles
+      - []          si la API respondió OK pero no hay turnos (capacidad real vacía)
+      - None        si la API de ST no pudo responder (error de red, auth, 5xx, etc.)
+    """
+    print(f"[check_availability_time] jobType={job_type} BUs={business_units} desde={time}")
 
     if isinstance(business_units, int):
         business_units = [business_units]
@@ -317,8 +352,8 @@ async def check_availability_time(time, business_units, job_type, access_token=N
     try:
         start_time = datetime.fromisoformat(corrected_time)
     except ValueError:
-        print(f"Invalid time format: {corrected_time}")
-        return []
+        print(f"[check_availability_time] ❌ Formato de tiempo inválido: {corrected_time}")
+        return None
 
     if not access_token:
         access_token = await get_access_token()
@@ -328,18 +363,17 @@ async def check_availability_time(time, business_units, job_type, access_token=N
         "Content-Type": "application/json",
     }
 
-    # Intentos (máx 5), sumando 7 días cada vez
-    for attempt in range(5):
-        print(f"Attempt {attempt + 1}/5...")
+    got_valid_response = False  # True si al menos un intento recibió HTTP 200
 
+    for attempt in range(5):
         current_start = start_time + timedelta(days=attempt * 7)
         current_end = current_start + timedelta(days=13)
-        current_end = current_end.replace(
-            hour=23, minute=59, second=0, microsecond=0)
+        current_end = current_end.replace(hour=23, minute=59, second=0, microsecond=0)
 
-        starts_on_or_after = current_start.replace(
-            tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        starts_on_or_after = current_start.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         ends_on_or_before = current_end.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        print(f"[check_availability_time] Intento {attempt + 1}/5 → {starts_on_or_after} a {ends_on_or_before}")
 
         payload = {
             "startsOnOrAfter": starts_on_or_after,
@@ -358,24 +392,27 @@ async def check_availability_time(time, business_units, job_type, access_token=N
                 )
 
             if response.status_code == 200:
-                data = response.json()
+                got_valid_response = True
                 slots = [
                     {"start": slot["start"], "end": slot["end"]}
-                    for slot in data.get("availabilities", []) if slot.get("isAvailable")
+                    for slot in response.json().get("availabilities", []) if slot.get("isAvailable")
                 ]
-
                 if slots:
-                    print("Checking availability time completed ✅")
+                    print(f"[check_availability_time] ✅ {len(slots)} slot(s). Primero: {slots[0]['start']}")
                     return slots
                 else:
-                    print(f"No slots on attempt {attempt + 1}, retrying...")
+                    print(f"[check_availability_time] 200 OK pero sin slots en intento {attempt + 1}, reintentando...")
             else:
-                print(f"❌ Error in API response: {response.status_code} {response.text}")
+                print(f"[check_availability_time] ❌ ST respondió {response.status_code}: {response.text[:300]}")
 
         except httpx.RequestError as e:
-            print(f"❌ Exception occurred: {str(e)}")
+            print(f"[check_availability_time] ❌ Error de red: {str(e)}")
 
-    print("No available slots found after 5 attempts.")
+    if not got_valid_response:
+        print("[check_availability_time] ❌ ST no respondió con 200 en ningún intento (API no disponible).")
+        return None  # distinto de [] — señal de falla de API, no de falta de capacidad
+
+    print("[check_availability_time] Sin slots disponibles tras 5 intentos (API OK, capacidad vacía).")
     return []
 
 
@@ -455,51 +492,63 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
         print("Coordinates Checked In List ✅")
         return {"message": "City is in the working area (matched from predefined list)."}
 
-    # Fallback: geocodificación + cálculo de distancia
-    address = f"{data.street}, {data.city}, {data.country}"
-    if not address:
-        print("error: The direction is not valid.")
-        return {"error": "The direction is not valid."}
-
+    # Fallback: geocodificación + cálculo de distancia (50 mi desde Salem MA)
+    # Política: si geocode falla pero el estado es MA o NH, se permite el booking
+    # (el dispatcher verifica en persona). Solo bloqueamos si la dirección queda
+    # fuera de los 50 mi y lo podemos confirmar con coordenadas reales.
+    address = f"{data.street}, {data.city}, {data.state}"
     url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-    resp = await asyncio.to_thread(requests.get, url_geocode)
+
+    try:
+        resp = await asyncio.to_thread(requests.get, url_geocode, timeout=8)
+    except Exception as e:
+        print(f"[checkWorkArea] Geocode no disponible: {e}")
+        if state in VALID_STATES:
+            return {"message": "Address is in the working area (geocode unavailable, valid state accepted)."}
+        return {"error": "Could not validate the address location. Please try again."}
+
     if resp.status_code != 200:
-        print("error: no response from geocode api")
+        print(f"[checkWorkArea] Geocode respondió {resp.status_code}")
+        if state in VALID_STATES:
+            return {"message": "Address is in the working area (geocode unavailable, valid state accepted)."}
         return {"error": "Failed to fetch geolocation data."}
 
     json_data = resp.json()
     if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
-        print("error: Address no found in geocode api")
-        return {"error": "The address received does not exist."}
+        print(f"[checkWorkArea] Geocode no encontró la dirección: {address}")
+        if state in VALID_STATES:
+            return {"message": "Address is in the working area (geocode could not verify, valid state accepted)."}
+        return {"error": "The address could not be located. Please verify the address and try again."}
 
-    expected_zip = json_data.get("standard", {}).get("postal")
-    client_zip = data.zip
-    expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
-    if expected_zip_clean and expected_zip_clean != client_zip:
-        print(
-            "error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
-        return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
+    # ZIP mismatch: solo loggear, NO bloquear. La autoridad es la distancia.
+    expected_zip = (json_data.get("standard", {}) or {}).get("postal")
+    if expected_zip:
+        expected_zip_clean = expected_zip.split('-')[0]
+        if expected_zip_clean != data.zip:
+            print(f"[checkWorkArea] ZIP mismatch: geocode={expected_zip_clean}, cliente={data.zip} — continuando con check de distancia.")
 
     try:
         lat = float(json_data.get("latt"))
         lon = float(json_data.get("longt"))
     except (TypeError, ValueError):
-        print("error: The provided coordinates are not valid.")
+        print("[checkWorkArea] No se pudieron parsear las coordenadas de geocode.")
+        if state in VALID_STATES:
+            return {"message": "Address is in the working area (geocode parse error, valid state accepted)."}
         return {"error": "The provided coordinates are not valid."}
 
     lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
     lat2, lon2 = math.radians(lat), math.radians(lon)
     delta_lat = lat2 - lat1
     delta_lon = lon2 - lon1
-    a = math.sin(delta_lat/2)**2 + math.cos(lat1) * \
-        math.cos(lat2)*math.sin(delta_lon/2)**2
+    a = math.sin(delta_lat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     distance = round(R * c, 2)
 
     if distance > 50:
-        print("error: There are no services available in the area.")
+        print(f"[checkWorkArea] Fuera del área: {distance} mi desde Salem MA.")
         return {"error": "There are no services available in the area."}
-    print("checkWorkArea request completed ✅")
+
+    print(f"[checkWorkArea] ✅ En área: {distance} mi desde Salem MA.")
     return {"message": "Address is in the working area."}
 
 
@@ -691,45 +740,35 @@ async def check_availability(data: utils.BookingRequest):
         "Content-Type": "application/json",
     }
 
-    print("Checking business unit...")
-    try:
-        url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response_jobTypes = await client.get(url_jobTypes, headers=headers)
+    # Obtener mapping jobTypeId → businessUnitIds (cacheado 30 min)
+    job_types = await _get_job_types(headers)
+    if not job_types:
+        return {"error": "Could not retrieve job type information from ServiceTitan. Please try again."}
 
-        if response_jobTypes.status_code == 200:
-            job_types_json = response_jobTypes.json()
-            job_types = {job_type["id"]: job_type["businessUnitIds"]
-                         for job_type in job_types_json["data"]}
-            business_units = job_types.get(data.jobTypeId, None)
-            if not business_units:
-                print(f"Job Type {data.jobTypeId} not found in response.")
-                return {"error": f"Job type {data.jobTypeId} not found. Cannot determine business unit."}
-        else:
-            print(f"❌ Failed to fetch job types: {response_jobTypes.status_code} - {response_jobTypes.text}")
-            return {"error": "Could not retrieve job type information. Please try again."}
+    business_units = job_types.get(data.jobTypeId)
+    if not business_units:
+        print(f"[checkAvailability] ❌ jobTypeId {data.jobTypeId} no encontrado en ST.")
+        return {"error": f"Job type {data.jobTypeId} not found. Cannot determine business unit."}
 
-        print("Business Unit Checked ✅")
-    except ValueError:
-        return {"error": "Checking business unit failed."}
+    print(f"[checkAvailability] jobTypeId={data.jobTypeId} → BUs={business_units} ✅")
 
-    available_slots = []
+    available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
 
-    try:
-        available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
+    # None = error de API (distinto de lista vacía = genuinamente sin turnos)
+    if available_slots is None:
+        print("[checkAvailability] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again in a moment."}
 
-        if not available_slots:
-            print("No available slots found.")
-            start_date = datetime.strptime(data.time, "%Y-%m-%dT%H:%M:%SZ")
-            end_date = start_date + timedelta(days=42)
-            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
-    except Exception as e:
-        print(f"Error checking availability: {e}")
+    if not available_slots:
+        print("[checkAvailability] Sin turnos disponibles.")
+        start_date = datetime.strptime(data.time, "%Y-%m-%dT%H:%M:%SZ")
+        end_date = start_date + timedelta(days=42)
+        return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
 
-    print("Checking availability ✅")
+    print(f"[checkAvailability] ✅ {len(available_slots)} slot(s) encontrados.")
     return {
-        'businessUnitId': business_units[0],
-        'available_slots': available_slots
+        "businessUnitId": business_units[0],
+        "available_slots": available_slots
     }
 
 
@@ -762,9 +801,13 @@ async def create_job(data: utils.JobCreateToolRequest):
         if not data.jobEndTime.endswith("Z"):
             data.jobEndTime += "Z"
 
-        # Convertir fechas a UTC desde hora local de Massachusetts
+        # Trazar conversión de timezone para debugging
+        print(f"[createJob] 🕐 Recibido del agente → start: {data.jobStartTime} | end: {data.jobEndTime}")
+        # massachusetts_to_utc asume que el agente envía hora Eastern (como la recibió
+        # de checkAvailability) y la convierte a UTC real para ServiceTitan.
         data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
         data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
+        print(f"[createJob] 🕐 Enviado a ST (UTC) → start: {data.jobStartTime} | end: {data.jobEndTime}")
 
         # Construir el payload para ServiceTitan
         payload = {
@@ -1048,24 +1091,24 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
 
     print(
         f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
-    try:
-        slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
-        if slots_available:
-            slots_eastern = [
-                {"start": utc_to_eastern(s["start"]), "end": utc_to_eastern(s["end"])}
-                for s in slots_available
-            ]
-            print("rescheduleAppointmentTimeAvailability request completed ")
-            return {"availableSlots": slots_eastern}
-        else:
-            print("No slots available.")
-            start_date = datetime.strptime(
-                data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
-            end_date = start_date + timedelta(days=42)
-            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
-    except httpx.RequestError as e:
-        print(f"Error getting slots: {e}")
-        return {"error": "Error when requesting availability."}
+    slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
+
+    if slots_available is None:
+        print("[rescheduleAvailability] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again."}
+
+    if slots_available:
+        slots_eastern = [
+            {"start": utc_to_eastern(s["start"]), "end": utc_to_eastern(s["end"])}
+            for s in slots_available
+        ]
+        print(f"[rescheduleAvailability] ✅ {len(slots_eastern)} slot(s) encontrados.")
+        return {"availableSlots": slots_eastern}
+
+    print("[rescheduleAvailability] Sin turnos disponibles.")
+    start_date = datetime.strptime(data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
+    end_date = start_date + timedelta(days=42)
+    return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
 
 
 @app.post("/rescheduleAppointment")
@@ -1280,23 +1323,20 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
     data = args_obj
 
-    print("Checking availability...")
+    print("[checkAvailabilityOutbound] Checking availability...")
 
-    available_slots = []
+    available_slots = await check_availability_time(data.time, business_unit, jobType)
 
-    try:
-        available_slots = await check_availability_time(data.time, business_unit, jobType)
+    if available_slots is None:
+        print("[checkAvailabilityOutbound] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again."}
 
-        if not available_slots:
-            print("No available slots found.")
-            return {'message': 'No availability found.'}
+    if not available_slots:
+        print("[checkAvailabilityOutbound] Sin turnos disponibles.")
+        return {"message": "No availability found."}
 
-    except Exception as e:
-        print(f"Error checking availability: {e}")
-    print("checkAvailabilityOutbound completed ✅")
-    return {
-        'available_slots': available_slots
-    }
+    print(f"[checkAvailabilityOutbound] ✅ {len(available_slots)} slot(s).")
+    return {"available_slots": available_slots}
 
 
 async def _resolve_call_id(request: Request, args_obj):
