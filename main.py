@@ -499,25 +499,31 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     address = f"{data.street}, {data.city}, {data.state}"
     url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
 
+    _GEOCODE_FAIL_OPEN = {
+        "message": "Address is in the working area.",
+        "geocode_validation": "pending",
+        "validation_note": "Geocode verification was unavailable. Please confirm the service address is within the coverage area before dispatching and add a note to the job summary."
+    }
+
     try:
         resp = await asyncio.to_thread(requests.get, url_geocode, timeout=8)
     except Exception as e:
         print(f"[checkWorkArea] Geocode no disponible: {e}")
         if state in VALID_STATES:
-            return {"message": "Address is in the working area (geocode unavailable, valid state accepted)."}
+            return _GEOCODE_FAIL_OPEN
         return {"error": "Could not validate the address location. Please try again."}
 
     if resp.status_code != 200:
         print(f"[checkWorkArea] Geocode respondió {resp.status_code}")
         if state in VALID_STATES:
-            return {"message": "Address is in the working area (geocode unavailable, valid state accepted)."}
+            return _GEOCODE_FAIL_OPEN
         return {"error": "Failed to fetch geolocation data."}
 
     json_data = resp.json()
     if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
         print(f"[checkWorkArea] Geocode no encontró la dirección: {address}")
         if state in VALID_STATES:
-            return {"message": "Address is in the working area (geocode could not verify, valid state accepted)."}
+            return _GEOCODE_FAIL_OPEN
         return {"error": "The address could not be located. Please verify the address and try again."}
 
     # ZIP mismatch: solo loggear, NO bloquear. La autoridad es la distancia.
@@ -533,7 +539,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     except (TypeError, ValueError):
         print("[checkWorkArea] No se pudieron parsear las coordenadas de geocode.")
         if state in VALID_STATES:
-            return {"message": "Address is in the working area (geocode parse error, valid state accepted)."}
+            return _GEOCODE_FAIL_OPEN
         return {"error": "The provided coordinates are not valid."}
 
     lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
@@ -1098,12 +1104,11 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
         return {"error": "ServiceTitan availability API is currently unavailable. Please try again."}
 
     if slots_available:
-        slots_eastern = [
-            {"start": utc_to_eastern(s["start"]), "end": utc_to_eastern(s["end"])}
-            for s in slots_available
-        ]
-        print(f"[rescheduleAvailability] ✅ {len(slots_eastern)} slot(s) encontrados.")
-        return {"availableSlots": slots_eastern}
+        # ST capacity API devuelve horarios en Eastern wall-clock mislabeled como "Z".
+        # No convertir: el agente debe recibirlos igual que en /checkAvailability.
+        # La conversión a UTC real ocurre en /rescheduleAppointment via massachusetts_to_utc.
+        print(f"[rescheduleAvailability] ✅ {len(slots_available)} slot(s) encontrados.")
+        return {"availableSlots": slots_available}
 
     print("[rescheduleAvailability] Sin turnos disponibles.")
     start_date = datetime.strptime(data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
