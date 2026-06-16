@@ -17,6 +17,8 @@ import pytz
 import math
 import re
 import requests
+from urllib.parse import quote
+from html import escape
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -136,34 +138,67 @@ VALID_STATES = {
 # Auxiliary functions
 
 
+# Token OAuth de ServiceTitan cacheado en memoria con su expiración.
+# Evita pedir un token nuevo en CADA request (latencia extra + riesgo de
+# rate-limit en el endpoint de auth). El lock previene race conditions cuando
+# varias llamadas concurrentes lo refrescan a la vez.
+_token_cache: dict = {"token": None, "exp": 0.0}
+_token_lock = asyncio.Lock()
+
+
 async def get_access_token():
-    try:
-        print("Fetching access token...")
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                AUTH_URL,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={"grant_type": "client_credentials",
-                      "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
-            )
-        if response.status_code == 200:
-            token_data = response.json()
-            print("Access token fetched successfully. ✅")
-            return token_data.get("access_token")
-        else:
-            print(f"Error fetching token: {response.text}")
-            raise HTTPException(status_code=response.status_code,
-                                detail=f"Authentication failed: {response.text}")
-    except httpx.RequestError as e:
-        print(f"Exception while fetching token: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get access token: {str(e)}")
+    async with _token_lock:
+        # Reusar token vigente (margen de 60s antes de expirar)
+        if _token_cache["token"] and time.time() < _token_cache["exp"] - 60:
+            return _token_cache["token"]
+        try:
+            print("Fetching access token...")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    AUTH_URL,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={"grant_type": "client_credentials",
+                          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+                )
+            if response.status_code == 200:
+                token_data = response.json()
+                _token_cache["token"] = token_data.get("access_token")
+                _token_cache["exp"] = time.time() + token_data.get("expires_in", 900)
+                print("Access token fetched successfully. ✅")
+                return _token_cache["token"]
+            else:
+                # No loguear response.text del endpoint de auth (puede traer detalles sensibles)
+                print(f"Error fetching token: status {response.status_code}")
+                raise HTTPException(status_code=response.status_code,
+                                    detail="Authentication with ServiceTitan failed.")
+        except httpx.RequestError as e:
+            print(f"Exception while fetching token: {str(e)}")
+            raise HTTPException(
+                status_code=503, detail="Could not reach ServiceTitan authentication service.")
 
 
 def massachusetts_to_utc(dt_str: str) -> str:
-    dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
-    eastern_tz = pytz.timezone("America/New_York")
-    dt_eastern = eastern_tz.localize(dt)
+    """Convierte dígitos Eastern wall-clock a UTC real para ServiceTitan.
+    Tolera formatos con/sin segundos y con/sin sufijo Z u offset (los dígitos
+    siempre se interpretan como hora Eastern). Lanza ValueError si no se puede
+    parsear, para que el endpoint lo capture y devuelva un mensaje legible."""
+    s = dt_str.strip()
+    if s.endswith("Z"):
+        s = s[:-1]
+    # Quitar offset explícito +hh:mm / -hh:mm si viniera
+    m = re.search(r'[+-]\d{2}:\d{2}$', s)
+    if m:
+        s = s[:m.start()]
+    dt = None
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            break
+        except ValueError:
+            continue
+    if dt is None:
+        raise ValueError(f"Unrecognized datetime format: {dt_str!r}")
+    dt_eastern = EASTERN_TIME.localize(dt)
     dt_utc = dt_eastern.astimezone(pytz.utc)
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -384,7 +419,9 @@ async def check_availability_time(time, business_units, job_type, access_token=N
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            # timeout corto: hasta 5 intentos secuenciales. Con 15s c/u podían
+            # sumar 75s y colgar la llamada de voz. 8s mantiene el total acotado.
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 response = await client.post(
                     f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
                     headers=headers,
@@ -496,8 +533,11 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     # Política: si geocode falla pero el estado es MA o NH, se permite el booking
     # (el dispatcher verifica en persona). Solo bloqueamos si la dirección queda
     # fuera de los 50 mi y lo podemos confirmar con coordenadas reales.
-    address = f"{data.street}, {data.city}, {data.state}"
-    url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
+    # SSRF/inyección: la dirección (input de usuario) NO debe interpolarse cruda
+    # en el path. Se URL-encodea y el auth va por params; sin seguir redirects
+    # para que nunca se filtre MAPS_AUTH a otro host.
+    address = quote(f"{data.street}, {data.city}, {data.state}", safe="")
+    url_geocode = f"https://geocode.xyz/{address}"
 
     _GEOCODE_FAIL_OPEN = {
         "message": "Address is in the working area.",
@@ -506,7 +546,14 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     }
 
     try:
-        resp = await asyncio.to_thread(requests.get, url_geocode, timeout=8)
+        resp = await asyncio.to_thread(
+            lambda: requests.get(
+                url_geocode,
+                params={"json": "1", "auth": MAPS_AUTH},
+                timeout=8,
+                allow_redirects=False,
+            )
+        )
     except Exception as e:
         print(f"[checkWorkArea] Geocode no disponible: {e}")
         if state in VALID_STATES:
@@ -519,7 +566,14 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
             return _GEOCODE_FAIL_OPEN
         return {"error": "Failed to fetch geolocation data."}
 
-    json_data = resp.json()
+    try:
+        json_data = resp.json()
+    except ValueError:
+        print("[checkWorkArea] Geocode devolvió un body no-JSON.")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
+        return {"error": "Could not validate the address location. Please try again."}
+
     if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
         print(f"[checkWorkArea] Geocode no encontró la dirección: {address}")
         if state in VALID_STATES:
@@ -811,8 +865,12 @@ async def create_job(data: utils.JobCreateToolRequest):
         print(f"[createJob] 🕐 Recibido del agente → start: {data.jobStartTime} | end: {data.jobEndTime}")
         # massachusetts_to_utc asume que el agente envía hora Eastern (como la recibió
         # de checkAvailability) y la convierte a UTC real para ServiceTitan.
-        data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
-        data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
+        try:
+            data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
+            data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
+        except ValueError as e:
+            print(f"[createJob] ❌ Formato de fecha/hora inválido: {e}")
+            return {"error": "Invalid date/time format received. Please re-confirm the appointment time."}
         print(f"[createJob] 🕐 Enviado a ST (UTC) → start: {data.jobStartTime} | end: {data.jobEndTime}")
 
         # Construir el payload para ServiceTitan
@@ -833,7 +891,9 @@ async def create_job(data: utils.JobCreateToolRequest):
             ],
             "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
             "scheduledTime": datetime.now().strftime("%H:%M"),
-            "summary": data.summary
+            # escape() evita stored-XSS en la UI de ServiceTitan (el summary se
+            # renderiza como HTML para los dispatchers).
+            "summary": escape(data.summary or "")
         }
 
         # Enviar request a ServiceTitan
@@ -847,12 +907,23 @@ async def create_job(data: utils.JobCreateToolRequest):
         print(f"[createJob] Response body: {response.text}")
 
         if response.status_code != 200:
+            # Loguear el detalle de ST server-side, pero NO devolverlo al agente.
             print(f"[createJob] ❌ Error creando job: {response.status_code} - {response.text}")
-            return {"error": f"Failed to create job: {response.text}"}
+            if response.status_code in (400, 409, 422):
+                return {"error": "That time is no longer available. Let me find another slot for you."}
+            return {"error": "Could not create the job right now. Please try again in a moment."}
 
         job_data = response.json()
         job_id = job_data.get("id")
         appointment_id = job_data.get("lastAppointmentId")
+
+        # No confirmar un agendamiento sin jobId real: el agente tiene PROHIBIDO
+        # decir que agendó si no se puede verificar. Sin jobId no se podría
+        # cancelar/reprogramar después.
+        if not job_id:
+            print(f"[createJob] ⚠️ ST respondió 200 pero sin jobId. Body: {response.text[:300]}")
+            return {"error": "The booking could not be confirmed. Please try again."}
+
         print(f"[createJob] ✅ Job creado: jobId={job_id}, appointmentId={appointment_id}")
         return {
             "status": "Job booked",
@@ -887,10 +958,12 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
     }
 
     def to_eastern(ts: str) -> str:
+        if not ts:
+            return ""
         if ts.endswith("Z"):
             ts = ts.replace("Z", "+00:00")
         dt_utc = datetime.fromisoformat(ts)
-        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+        return dt_utc.astimezone(EASTERN_TIME).isoformat()
 
     async def fetch_jobs_by_status(job_status: str):
         url = (
@@ -996,10 +1069,12 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     }
 
     def to_eastern_past(ts: str) -> str:
+        if not ts:
+            return ""
         if ts.endswith("Z"):
             ts = ts.replace("Z", "+00:00")
         dt_utc = datetime.fromisoformat(ts)
-        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+        return dt_utc.astimezone(EASTERN_TIME).isoformat()
 
     async def fetch_jobs_by_status_past(job_status: str):
         url = (
@@ -1290,7 +1365,7 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
     job_data = job_resp.json()
     current_summary = job_data.get("summary", "")
 
-    new_summary = f"<p>{info}</p>"
+    new_summary = f"<p>{escape(info or '')}</p>"
     updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
 
     print(f"Updating summary for job ID {job_id}...")
