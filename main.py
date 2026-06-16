@@ -524,6 +524,13 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     city = data.city.strip().lower()
     state = data.state.strip().lower()
 
+    # Restricción de licencia: plomería solo disponible en NH, no en MA.
+    MA_STATES = {"ma", "massachusetts"}
+    PLUMBING_JOB_TYPE_IDS = {5879699}
+    if state in MA_STATES and getattr(data, "jobTypeId", None) in PLUMBING_JOB_TYPE_IDS:
+        print(f"[checkWorkArea] ❌ Plomería no disponible en MA (jobTypeId={data.jobTypeId})")
+        return {"error": "Plumbing service is not available in Massachusetts. We can assist you with plumbing in New Hampshire."}
+
     # Validación rápida: estado permitido y ciudad en lista única
     if state in VALID_STATES and city in CITIES:
         print("Coordinates Checked In List ✅")

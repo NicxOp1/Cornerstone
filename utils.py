@@ -28,6 +28,7 @@ class Address(BaseModel):
     zip: Optional[str] = Field(..., description="Zip code of the customer")
     country: Optional[str] = Field(..., description="Country name")
     state: Optional[str] = Field(..., description="State name")
+    jobTypeId: Optional[int] = Field(None, description="Job type ID to validate service availability in this area")
 
     model_config = ConfigDict(extra='allow')
 
