@@ -9,6 +9,7 @@ import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import utils as utils
+import config
 import logging
 from dotenv import load_dotenv
 import os
@@ -16,12 +17,19 @@ import json
 import pytz
 import math
 import re
+import sys
 import requests
 from urllib.parse import quote
 from html import escape
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 # Load environment variables
 load_dotenv()
@@ -36,19 +44,16 @@ EASTERN_TIME = pytz.timezone("America/New_York")
 MAPS_AUTH = os.getenv("MAPS_AUTH")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-OFFICE_EMAIL = "info@cornerstoneservicesne.com"
+OFFICE_EMAIL = config.OFFICE_EMAIL
 
-DIRECT_LINES = {
-    "john": "6033274334",
-    "josh": "6033275618",
-}
+DIRECT_LINES = config.DIRECT_LINES
 
 # =============================================================================
 # JOB-TYPES CACHE (evita un round-trip a ST en cada checkAvailability)
 # =============================================================================
 
 _job_types_cache: dict = {"data": None, "ts": 0.0}
-_JOB_TYPES_TTL = 1800  # segundos (30 min)
+_JOB_TYPES_TTL = config.JOB_TYPES_TTL
 
 
 async def _get_job_types(headers: dict) -> dict:
@@ -76,7 +81,7 @@ async def _get_job_types(headers: dict) -> dict:
 # CALL SESSION STORE (in-memory, TTL 2 hours)
 # =============================================================================
 
-CALL_SESSION_TTL = 7200  # 2 hours in seconds
+CALL_SESSION_TTL = config.CALL_SESSION_TTL
 
 # { callId: { "_ts": timestamp, "field": "value", ... } }
 call_sessions: dict = {}
@@ -120,20 +125,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"error": f"Missing or invalid required fields: {missing}"}
     )
 
-CITIES = {
-    "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree", "brockton", "cambridge", "chelsea",
-    "chicopee", "easthampton", "everett", "fall river", "fitchburg", "framingham", "franklin", "gardner", "gloucester", "greenfield",
-    "haverhill", "holyoke", "lawrence", "leominster", "lowell", "lynn", "malden", "marlborough", "medford", "melrose",
-    "methuen", "new bedford", "newburyport", "newton", "north adams", "northampton", "palmer", "peabody", "pittsfield", "quincy",
-    "randolph", "revere", "salem", "somerville", "southbridge", "springfield", "taunton", "waltham", "watertown", "west springfield",
-    "westfield", "weymouth", "winthrop", "woburn", "worcester", "bridgewater", "amherst", "berlin", "claremont", "concord",
-    "dover", "franklin", "keene", "laconia", "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth",
-    "acton", "arlington", "atkinson", "derry", "hudson", "windham", "hampton"
-}
+CITIES = config.CITIES
 
-VALID_STATES = {
-    "ma", "nh", "new hampshire", "massachusetts"
-}
+VALID_STATES = config.VALID_STATES
 
 # Auxiliary functions
 
@@ -149,7 +143,7 @@ _token_lock = asyncio.Lock()
 async def get_access_token():
     async with _token_lock:
         # Reusar token vigente (margen de 60s antes de expirar)
-        if _token_cache["token"] and time.time() < _token_cache["exp"] - 60:
+        if _token_cache["token"] and time.time() < _token_cache["exp"] - config.TOKEN_REFRESH_MARGIN:
             return _token_cache["token"]
         try:
             print("Fetching access token...")
@@ -177,27 +171,26 @@ async def get_access_token():
                 status_code=503, detail="Could not reach ServiceTitan authentication service.")
 
 
-def massachusetts_to_utc(dt_str: str) -> str:
-    """Convierte dígitos Eastern wall-clock a UTC real para ServiceTitan.
-    Tolera formatos con/sin segundos y con/sin sufijo Z u offset (los dígitos
-    siempre se interpretan como hora Eastern). Lanza ValueError si no se puede
-    parsear, para que el endpoint lo capture y devuelva un mensaje legible."""
+def _parse_agent_datetime(dt_str: str) -> datetime:
+    """Parse agent-provided Eastern wall-clock timestamps with loose ISO input."""
     s = dt_str.strip()
     if s.endswith("Z"):
         s = s[:-1]
-    # Quitar offset explícito +hh:mm / -hh:mm si viniera
-    m = re.search(r'[+-]\d{2}:\d{2}$', s)
+    m = re.search(r"[+-]\d{2}:\d{2}$", s)
     if m:
         s = s[:m.start()]
-    dt = None
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
         try:
-            dt = datetime.strptime(s, fmt)
-            break
+            return datetime.strptime(s, fmt)
         except ValueError:
             continue
-    if dt is None:
-        raise ValueError(f"Unrecognized datetime format: {dt_str!r}")
+    raise ValueError(f"Unrecognized datetime format: {dt_str!r}")
+
+
+def massachusetts_to_utc(dt_str: str) -> str:
+    """Convierte dígitos Eastern wall-clock a UTC real para ServiceTitan.
+    Tolera formatos con/sin segundos y con/sin sufijo Z u offset."""
+    dt = _parse_agent_datetime(dt_str)
     dt_eastern = EASTERN_TIME.localize(dt)
     dt_utc = dt_eastern.astimezone(pytz.utc)
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -375,20 +368,11 @@ async def check_availability_time(time, business_units, job_type, access_token=N
     elif isinstance(business_units, list):
         business_units = [int(bu) for bu in business_units]
 
-    # Parsear tiempo inicial
-    if "Z" in time:
-        time = time.replace("Z", "+00:00")
-
-    time_parts = time.split('T')
-    date_parts = time_parts[0].split('-')
-    date_parts[2] = date_parts[2].zfill(2)
-    corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
-
     try:
-        start_time = datetime.fromisoformat(corrected_time)
-    except ValueError:
-        print(f"[check_availability_time] ❌ Formato de tiempo inválido: {corrected_time}")
-        return None
+        start_time = _parse_agent_datetime(time)
+    except ValueError as exc:
+        print(f"[check_availability_time] ❌ Formato de tiempo inválido: {time}")
+        raise ValueError("Invalid date/time format. Expected ISO 8601 like YYYY-MM-DDTHH:MM[:SS].") from exc
 
     if not access_token:
         access_token = await get_access_token()
@@ -518,16 +502,28 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
 
     data = args_obj
 
-    PO_BOX_SALEM = (42.775, -71.217)
-    R = 3958.8
+    required_text_fields = {
+        "street": data.street,
+        "city": data.city,
+        "state": data.state,
+        "zip": data.zip,
+    }
+    missing_fields = [
+        field_name
+        for field_name, value in required_text_fields.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
+    if missing_fields:
+        return {"error": f"Missing required address fields: {missing_fields}"}
+
+    PO_BOX_SALEM = config.SALEM_PO_BOX
+    R = config.EARTH_RADIUS_MILES
 
     city = data.city.strip().lower()
     state = data.state.strip().lower()
 
     # Restricción de licencia: plomería solo disponible en NH, no en MA.
-    MA_STATES = {"ma", "massachusetts"}
-    PLUMBING_JOB_TYPE_IDS = {5879699}
-    if state in MA_STATES and getattr(data, "jobTypeId", None) in PLUMBING_JOB_TYPE_IDS:
+    if state in config.MA_STATES and getattr(data, "jobTypeId", None) in config.PLUMBING_JOB_TYPE_IDS:
         print(f"[checkWorkArea] ❌ Plomería no disponible en MA (jobTypeId={data.jobTypeId})")
         return {"error": "Plumbing service is not available in Massachusetts. We can assist you with plumbing in New Hampshire."}
 
@@ -611,7 +607,7 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     distance = round(R * c, 2)
 
-    if distance > 50:
+    if distance > config.SERVICE_RADIUS_MILES:
         print(f"[checkWorkArea] Fuera del área: {distance} mi desde Salem MA.")
         return {"error": "There are no services available in the area."}
 
@@ -629,6 +625,8 @@ async def find_customer(data: utils.FindCustomerToolRequest):
         args_obj = data.args
 
     phone = args_obj.number
+    if not isinstance(phone, str) or not phone.strip():
+        return {"error": "A phone number is required to search for a customer."}
 
     try:
         url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?phone={phone}"
@@ -736,7 +734,7 @@ async def create_location(data: utils.CreateLocationToolRequest):
     payload = {
         "customerId": data.customerId,
         "name": data.location.name,
-        "address": data.location.address.dict()
+        "address": data.location.address.model_dump(exclude={"jobTypeId"}, exclude_none=True)
     }
 
     url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
@@ -819,7 +817,10 @@ async def check_availability(data: utils.BookingRequest):
 
     print(f"[checkAvailability] jobTypeId={data.jobTypeId} → BUs={business_units} ✅")
 
-    available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
+    try:
+        available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
     # None = error de API (distinto de lista vacía = genuinamente sin turnos)
     if available_slots is None:
@@ -828,7 +829,7 @@ async def check_availability(data: utils.BookingRequest):
 
     if not available_slots:
         print("[checkAvailability] Sin turnos disponibles.")
-        start_date = datetime.strptime(data.time, "%Y-%m-%dT%H:%M:%SZ")
+        start_date = _parse_agent_datetime(data.time)
         end_date = start_date + timedelta(days=42)
         return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
 
@@ -1179,7 +1180,10 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
 
     print(
         f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
-    slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
+    try:
+        slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
     if slots_available is None:
         print("[rescheduleAvailability] ❌ API de ST no disponible.")
@@ -1193,7 +1197,7 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
         return {"availableSlots": slots_available}
 
     print("[rescheduleAvailability] Sin turnos disponibles.")
-    start_date = datetime.strptime(data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
+    start_date = _parse_agent_datetime(data.newSchedule)
     end_date = start_date + timedelta(days=42)
     return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
 
@@ -1214,6 +1218,11 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
     appointment_id = data.appointmentId
     technician_id = data.employeeId
     new_schedule = data.newSchedule
+
+    if not appointment_id:
+        return {"error": "Missing appointmentId in request."}
+    if not isinstance(new_schedule, str) or not new_schedule.strip():
+        return {"error": "Missing newSchedule in request."}
 
     # 1. Unassign technician if provided
     st_headers = {
@@ -1245,7 +1254,10 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
         new_schedule += "Z"
 
     # 3. Convert from Massachusetts local time to UTC
-    start_utc = massachusetts_to_utc(new_schedule)
+    try:
+        start_utc = massachusetts_to_utc(new_schedule)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
     # 4. Calculate end_utc = start_utc + 3 hours
     start_dt = datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
@@ -1400,8 +1412,8 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
 @app.post("/checkAvailabilityOutbound/")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
     print("Processing checkAvailabilityOutbound request... 🔄")
-    jobType = 5879699
-    business_unit = 5878155
+    jobType = config.OUTBOUND_JOB_TYPE_ID
+    business_unit = config.OUTBOUND_BUSINESS_UNIT_ID
 
     if isinstance(data.args, dict):
         args_obj = utils.RequestArgsOutbound.parse_obj(data.args)
@@ -1412,7 +1424,10 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
     print("[checkAvailabilityOutbound] Checking availability...")
 
-    available_slots = await check_availability_time(data.time, business_unit, jobType)
+    try:
+        available_slots = await check_availability_time(data.time, business_unit, jobType)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
     if available_slots is None:
         print("[checkAvailabilityOutbound] ❌ API de ST no disponible.")
@@ -1641,3 +1656,4 @@ async def send_office_message(data: utils.OfficeMessageToolRequest):
 
 
 # start the server: fastapi dev main.py
+
