@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 import httpx
 import asyncio
 import smtplib
@@ -123,6 +124,21 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     return JSONResponse(
         status_code=400,
         content={"error": f"Missing or invalid required fields: {missing}"}
+    )
+
+# Los endpoints de tools parsean data.args manualmente con .parse_obj() en vez de
+# dejar que FastAPI lo valide como parametro de ruta (ver cancelAppointment, etc).
+# Sin este handler, un ValidationError ahi adentro es una excepcion sin capturar
+# -> 500 crudo en vez de un error legible para Harmony (ej: reasonId invento por
+# el LLM en vez de un ID numerico de la tabla).
+@app.exception_handler(ValidationError)
+async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
+    errors = exc.errors()
+    invalid = [e["loc"][-1] for e in errors]
+    logger.error(f"[ValidationError] Invalid tool arguments: {invalid} — body: {await request.body()}")
+    return JSONResponse(
+        status_code=400,
+        content={"error": f"Invalid or missing arguments: {invalid}"}
     )
 
 CITIES = config.CITIES
