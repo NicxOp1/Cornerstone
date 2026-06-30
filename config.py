@@ -1,4 +1,4 @@
-""
+"""
 config.py — Configuración centralizada de Cornerstone backend.
 
 Saca a un solo lugar todos los hardcodes que estaban dispersos en main.py
