@@ -120,7 +120,10 @@ app = FastAPI()
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
     missing = [e["loc"][-1] for e in errors]
-    logger.error(f"[ValidationError] Missing/invalid fields: {missing} — body: {await request.body()}")
+    # No leer request.body() aca: en produccion el ASGI receive() ya se consumio
+    # al parsear el body original y volver a awaitearlo cuelga la response (visto
+    # en vivo: timeout de 120s en vez de un 400 instantaneo).
+    logger.error(f"[ValidationError] Missing/invalid fields: {missing}")
     return JSONResponse(
         status_code=400,
         content={"error": f"Missing or invalid required fields: {missing}"}
@@ -135,7 +138,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
     errors = exc.errors()
     invalid = [e["loc"][-1] for e in errors]
-    logger.error(f"[ValidationError] Invalid tool arguments: {invalid} — body: {await request.body()}")
+    logger.error(f"[ValidationError] Invalid tool arguments: {invalid}")
     return JSONResponse(
         status_code=400,
         content={"error": f"Invalid or missing arguments: {invalid}"}
