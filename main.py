@@ -1328,8 +1328,15 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
         print("Job ID not found.")
         return {"error": "Job ID not found", "details": resp.json()}
     else:
-        print(f"Failed to cancel job: {resp.text}")
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        try:
+            st_detail = resp.json()
+        except Exception:
+            st_detail = resp.text.strip()
+        print(f"Failed to cancel job: {st_detail}")
+        return {
+            "error": f"Request error: {resp.status_code}",
+            "details": st_detail or "ServiceTitan rejected the cancellation request."
+        }
 
 
 @app.post("/updateJobSummary")
