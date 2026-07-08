@@ -213,6 +213,19 @@ class ClearCallDataToolRequest(ToolRequestWrapper[ClearCallDataRequest]):
 
 
 # =============================================================================
+# ZIP SUGGESTION
+# =============================================================================
+
+class SuggestZipRequest(BaseModel):
+    city: str = Field(..., description="City of the service address")
+    state: str = Field(..., description="Two-letter state abbreviation (MA or NH)")
+    street: Optional[str] = Field(None, description="Street address, optional context")
+
+class SuggestZipToolRequest(ToolRequestWrapper[SuggestZipRequest]):
+    pass
+
+
+# =============================================================================
 # DIRECT LINE
 # =============================================================================
 
@@ -238,7 +251,7 @@ class OfficeMessageRequest(BaseModel):
     reason: Optional[str] = Field(None, description="Reason for the call or transfer")
     callback: Optional[str] = Field(None, description="Preferred callback time")
     email: Optional[str] = Field(None, description="Caller's email if known")
-    isEmergency: Optional[str] = Field(None, description="Whether the call is an emergency")
+    isEmergency: Optional[bool] = Field(None, description="Whether the call is an emergency")
 
 class OfficeMessageToolRequest(ToolRequestWrapper[OfficeMessageRequest]):
     pass

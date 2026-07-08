@@ -110,6 +110,73 @@ VALID_STATES: set = _env_set("VALID_STATES", {
 
 MA_STATES: set = {"ma", "massachusetts"}
 
+# -----------------------------------------------------------------------------
+# Zips por ciudad (inferencia estática — geocode.xyz quedó descartado por
+# poco confiable). Clave: "ciudad|st". Solo ciudades donde la lista es corta
+# y estable; las ciudades grandes multi-zip (Boston, Worcester, etc.) se
+# omiten a propósito → /suggestZip devuelve "unknown" y Harmony pregunta.
+# Sobreescribible por env CITY_ZIPS como JSON.
+# -----------------------------------------------------------------------------
+CITY_ZIPS: dict = _env_json("CITY_ZIPS", {
+    # New Hampshire (núcleo del área de servicio)
+    "salem|nh": ["03079"],
+    "windham|nh": ["03087"],
+    "derry|nh": ["03038"],
+    "atkinson|nh": ["03811"],
+    "hudson|nh": ["03051"],
+    "nashua|nh": ["03060", "03062", "03063", "03064"],
+    "manchester|nh": ["03101", "03102", "03103", "03104", "03109"],
+    "concord|nh": ["03301", "03303"],
+    "hampton|nh": ["03842"],
+    "portsmouth|nh": ["03801"],
+    "dover|nh": ["03820"],
+    "rochester|nh": ["03867", "03868"],
+    "somersworth|nh": ["03878"],
+    "keene|nh": ["03431"],
+    "laconia|nh": ["03246"],
+    "franklin|nh": ["03235"],
+    "claremont|nh": ["03743"],
+    "lebanon|nh": ["03766"],
+    "berlin|nh": ["03570"],
+    # Massachusetts (Merrimack Valley / North Shore, donde llama la mayoría)
+    "methuen|ma": ["01844"],
+    "lawrence|ma": ["01840", "01841", "01843"],
+    "haverhill|ma": ["01830", "01832", "01835"],
+    "lowell|ma": ["01850", "01851", "01852", "01854"],
+    "amesbury|ma": ["01913"],
+    "newburyport|ma": ["01950"],
+    "salem|ma": ["01970"],
+    "beverly|ma": ["01915"],
+    "peabody|ma": ["01960"],
+    "gloucester|ma": ["01930"],
+    "woburn|ma": ["01801"],
+    "melrose|ma": ["02176"],
+    "malden|ma": ["02148"],
+    "medford|ma": ["02155"],
+    "everett|ma": ["02149"],
+    "revere|ma": ["02151"],
+    "chelsea|ma": ["02150"],
+    "winthrop|ma": ["02152"],
+    "watertown|ma": ["02472"],
+    "waltham|ma": ["02451", "02452", "02453"],
+    "randolph|ma": ["02368"],
+    "braintree|ma": ["02184"],
+    "taunton|ma": ["02780"],
+    "brockton|ma": ["02301", "02302"],
+    "framingham|ma": ["01701", "01702"],
+    "marlborough|ma": ["01752"],
+    "franklin|ma": ["02038"],
+    "fitchburg|ma": ["01420"],
+    "leominster|ma": ["01453"],
+    "gardner|ma": ["01440"],
+})
+
+# Nombres de estado hablados → abreviatura para la clave de CITY_ZIPS.
+STATE_ABBR: dict = {
+    "ma": "ma", "massachusetts": "ma",
+    "nh": "nh", "new hampshire": "nh",
+}
+
 
 # -----------------------------------------------------------------------------
 # TTLs y márgenes de cache
@@ -117,3 +184,10 @@ MA_STATES: set = {"ma", "massachusetts"}
 CALL_SESSION_TTL: int = _env_int("CALL_SESSION_TTL", 7200)        # 2 h
 JOB_TYPES_TTL: int = _env_int("JOB_TYPES_TTL", 1800)              # 30 min
 TOKEN_REFRESH_MARGIN: int = _env_int("TOKEN_REFRESH_MARGIN", 60)  # s antes de exp
+
+# -----------------------------------------------------------------------------
+# Idempotencia de side effects (createJob, sendOfficeMessage, etc.)
+# -----------------------------------------------------------------------------
+# Evita duplicar una accion real (booking, mail, cancelacion) si Retell reintenta
+# el mismo tool call (mismo call_id + mismos args) por un timeout o glitch de red.
+IDEMPOTENCY_TTL: int = _env_int("IDEMPOTENCY_TTL_SECONDS", 900)  # 15 min
