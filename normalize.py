@@ -130,6 +130,16 @@ def normalize_zip(raw) -> str:
     return digits if digits else s
 
 
+def has_full_name(raw) -> bool:
+    """True si el valor tiene al menos dos palabras (nombre + apellido).
+
+    No valida contenido, solo forma: "John" -> False, "John Smith" -> True.
+    """
+    if not isinstance(raw, str):
+        return False
+    return len(raw.strip().split()) >= 2
+
+
 def normalize_call_field(field: str, value):
     """Normalización por campo para el call-session store."""
     if not isinstance(value, str):

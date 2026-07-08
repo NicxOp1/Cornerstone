@@ -350,6 +350,14 @@ async def create_customer(customer: utils.CustomerCreateRequest):
             print("Error: Customer location is missing.")
             return {"error": "Customer location is missing."}
 
+        if not normalize.has_full_name(customer.name):
+            print("Error: Customer name missing last name.")
+            return {"error": "missing_last_name", "message": "The customer only gave a first name. Ask for their last name, then call create_customer again with the full first and last name."}
+
+        if not normalize.has_full_name(location.name):
+            print("Error: Location name missing last name.")
+            return {"error": "missing_last_name", "message": "The location name only has a first name. Ask the caller for their last name, then call create_customer again with the full name on the location too."}
+
         if hasattr(location, 'address') and location.address:
             location.address.country = location.address.country or "USA"
             location.address.state = location.address.state or "MA"
@@ -520,6 +528,65 @@ async def check_availability_time(time, business_units, job_type, access_token=N
 
     print("[check_availability_time] Sin slots disponibles tras 5 intentos (API OK, capacidad vacía).")
     return []
+
+
+async def _resolve_business_unit(headers, job_type_id, start_raw, end_raw, requested_bu):
+    """Re-verifica contra ServiceTitan cual business unit tiene realmente el
+    hueco para este horario exacto, en vez de confiar en la que arrastro el
+    agente desde check_availability (que mezcla los slots de todas las BUs
+    de un jobType en una sola lista sin indicar de cual era cada una)."""
+    job_types = await _get_job_types(headers)
+    business_units = job_types.get(job_type_id) or []
+    if len(business_units) <= 1:
+        return requested_bu  # una sola BU posible, nada que resolver
+
+    try:
+        start_dt = _parse_agent_datetime(start_raw)
+        end_dt = _parse_agent_datetime(end_raw)
+    except ValueError:
+        return requested_bu
+
+    starts_on_or_after = start_dt.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    ends_on_or_before = end_dt.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    payload = {
+        "startsOnOrAfter": starts_on_or_after,
+        "endsOnOrBefore": ends_on_or_before,
+        "businessUnitIds": [int(bu) for bu in business_units],
+        "jobTypeId": job_type_id,
+        "skillBasedAvailability": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
+                headers=headers, json=payload)
+    except httpx.RequestError as e:
+        print(f"[resolveBusinessUnit] ❌ Error de red: {e}")
+        return requested_bu
+
+    if resp.status_code != 200:
+        print(f"[resolveBusinessUnit] ❌ ST respondio {resp.status_code}, se mantiene BU {requested_bu}")
+        return requested_bu
+
+    matches = [
+        slot for slot in resp.json().get("availabilities", [])
+        if slot.get("isAvailable")
+        and slot.get("start") == starts_on_or_after
+        and slot.get("end") == ends_on_or_before
+    ]
+    if not matches:
+        print(f"[resolveBusinessUnit] Sin match exacto de horario, se mantiene BU {requested_bu}")
+        return requested_bu
+
+    available_bu_ids = {bu for slot in matches for bu in slot.get("businessUnitIds", [])}
+    if requested_bu in available_bu_ids:
+        return requested_bu
+
+    corrected = matches[0]["businessUnitIds"][0]
+    print(f"[resolveBusinessUnit] ⚠️ BU corregida: agente mandó {requested_bu}, "
+          f"la que realmente tiene el hueco es {corrected} (jobType {job_type_id})")
+    return corrected
 
 
 async def get_technicians_by_businessUnitId(businessUnitId):
@@ -811,6 +878,10 @@ async def create_location(data: utils.CreateLocationToolRequest, request: Reques
     data = args_obj
 
     async def action():
+        if not normalize.has_full_name(data.location.name):
+            print("Error: Location name missing last name.")
+            return {"error": "missing_last_name", "message": "This location's name only has a first name. Ask the caller for their last name, then call create_location again with the full name."}
+
         access_token = await get_access_token()
         headers = {
             "Authorization": access_token,
@@ -964,6 +1035,15 @@ async def create_job(data: utils.JobCreateToolRequest, request: Request):
                 data.jobStartTime += "Z"
             if not data.jobEndTime.endswith("Z"):
                 data.jobEndTime += "Z"
+
+            # Si el jobType tiene mas de una business unit, check_availability
+            # ya mezclo los slots de todas en una sola lista sin decir de cual
+            # era cada uno. Re-verificar contra ST cual BU tiene realmente el
+            # hueco a esta hora exacta, en vez de confiar en la que arrastro
+            # el agente desde la conversacion.
+            data.businessUnitId = await _resolve_business_unit(
+                headers, data.jobTypeId, data.jobStartTime, data.jobEndTime, data.businessUnitId
+            )
 
             # Trazar conversión de timezone para debugging
             print(f"[createJob] 🕐 Recibido del agente → start: {data.jobStartTime} | end: {data.jobEndTime}")
@@ -1732,9 +1812,11 @@ async def suggest_zip(data: utils.SuggestZipToolRequest):
         return {"status": "single", "zip": zips[0],
                 "message": "Use this zip code silently. Do not ask the caller for it — just include it in the final read-back."}
 
-    print(f"[suggestZip] {city}|{state} → {len(zips)} opciones")
-    return {"status": "multiple", "zips": zips,
-            "message": "Ask the caller which of these zip codes is theirs, e.g. 'And is that the 03060 or 03062 zip?'"}
+    offered = zips[:2]
+    print(f"[suggestZip] {city}|{state} → {len(zips)} opciones, ofreciendo {offered}")
+    return {"status": "multiple", "zips": offered,
+            "message": "Ask the caller which of these zip codes is theirs, e.g. 'And is that the 03060 or 03062 zip?'. "
+                       "If neither matches, ask the caller directly for their zip code instead."}
 
 
 def _send_gmail(subject: str, body: str, html_body: str = None):
