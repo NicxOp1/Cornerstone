@@ -83,3 +83,67 @@ OK
 
 - No blocking issues.
 - The local Python used for tests does not have `httpx` installed, so the module includes an import-safe fallback that still fails fast at runtime if a real ServiceTitan request is attempted without `httpx`.
+
+## Review-fix pass notes
+
+### What I changed
+
+- Aligned `check_call()` with the brief so `pending` is now reserved for `httpx.RequestError` only.
+- Removed the early return that classified missing paired results and `successful=False` tool results as `pending`.
+- Let those cases continue through normal verification so they now resolve via the accumulated checks as `confirmed` or `mismatch`.
+- Added focused regression tests for:
+  - missing paired result -> `mismatch`
+  - `successful=False` with valid `create_customer` IDs -> `confirmed`
+
+### Root cause
+
+The implementation had an early guard:
+
+```python
+if not result or not result.get("successful", True):
+    return "pending"
+```
+
+That guard short-circuited the checker before it could evaluate the same evidence the brief says should drive the final classification. As a result, cases that should have become `mismatch` or `confirmed` were being forced into `pending`.
+
+### TDD evidence for review-fix pass
+
+#### RED
+
+- Command: `python -m unittest tests.dashboard_sync.test_booking_effectiveness -v`
+- Relevant failing output:
+
+```text
+FAIL: test_confirmed_even_when_tool_result_marks_unsuccessful_if_customer_id_is_present
+AssertionError: 'pending' != 'confirmed'
+
+FAIL: test_mismatch_when_tracked_invocation_has_no_paired_result
+AssertionError: 'pending' != 'mismatch'
+```
+
+- Why the failure was expected:
+  The new regression tests were written to capture the brief's intended semantics, and the current implementation still had the early `pending` return.
+
+#### GREEN
+
+- Command: `python -m unittest tests.dashboard_sync.test_booking_effectiveness -v`
+- Relevant passing output:
+
+```text
+Ran 11 tests in 0.179s
+
+OK
+```
+
+- Command: `python -m unittest discover -s tests/dashboard_sync -v`
+- Relevant passing output:
+
+```text
+Ran 41 tests in 0.547s
+
+OK
+```
+
+### Concerns
+
+- I left the `httpx` fallback shim in place because this environment still lacks a globally importable `httpx`, and removing the shim would break the task's local tests without providing a clear task-level benefit.

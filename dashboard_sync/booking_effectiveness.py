@@ -102,12 +102,9 @@ async def check_call(call: dict) -> str:
     checks = []
     try:
         for invocation, result in pairs:
-            if not result or not result.get("successful", True):
-                return "pending"
-
             name = invocation.get("name")
             arguments = _safe_json(invocation.get("arguments"))
-            result_content = _safe_json(result.get("content"))
+            result_content = _safe_json(result.get("content") if result else None)
 
             if name == "create_job":
                 job_id = result_content.get("jobId")

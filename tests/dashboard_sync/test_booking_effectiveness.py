@@ -124,6 +124,23 @@ class CreateCustomerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, "confirmed")
 
+    async def test_confirmed_even_when_tool_result_marks_unsuccessful_if_customer_id_is_present(self):
+        from dashboard_sync import booking_effectiveness
+
+        call = {
+            "transcript_with_tool_calls": _twc_pair(
+                "tc1",
+                "create_customer",
+                "{\"name\":\"Jane Doe\"}",
+                "{\"customerId\":123,\"locationId\":456,\"status\":\"created\"}",
+                success=False,
+            )
+        }
+
+        result = await booking_effectiveness.check_call(call)
+
+        self.assertEqual(result, "confirmed")
+
 
 class CreateLocationTests(unittest.IsolatedAsyncioTestCase):
     async def test_confirmed_when_location_id_is_present(self):
@@ -217,6 +234,27 @@ class ServiceTitanUnreachableTests(unittest.IsolatedAsyncioTestCase):
         result = await booking_effectiveness.check_call(call)
 
         self.assertEqual(result, "pending")
+
+
+class MissingResultClassificationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mismatch_when_tracked_invocation_has_no_paired_result(self):
+        from dashboard_sync import booking_effectiveness
+
+        call = {
+            "transcript_with_tool_calls": [
+                {
+                    "role": "tool_call_invocation",
+                    "tool_call_id": "tc1",
+                    "name": "create_customer",
+                    "arguments": "{\"name\":\"Jane Doe\"}",
+                    "time_sec": 10.0,
+                }
+            ]
+        }
+
+        result = await booking_effectiveness.check_call(call)
+
+        self.assertEqual(result, "mismatch")
 
 
 if __name__ == "__main__":
