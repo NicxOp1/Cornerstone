@@ -1,8 +1,4 @@
 import unittest
-import warnings
-
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
@@ -18,6 +14,15 @@ def _build_test_app():
 
 
 class TokenAuthTests(unittest.TestCase):
+    @patch("dashboard_sync.webhook.config")
+    def test_empty_config_token_returns_401(self, mock_config):
+        mock_config.DASHBOARD_SYNC_TOKEN = ""
+        client = TestClient(_build_test_app())
+
+        resp = client.post("/webhooks/callSynced", json={"call": {"call_id": "call_1"}})
+
+        self.assertEqual(resp.status_code, 401)
+
     @patch("dashboard_sync.webhook.config")
     def test_missing_token_returns_401(self, mock_config):
         mock_config.DASHBOARD_SYNC_TOKEN = "secret-token"

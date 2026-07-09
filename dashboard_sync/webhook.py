@@ -30,7 +30,7 @@ def _extract_call_payload(body: dict) -> dict:
 
 @router.post("/webhooks/callSynced")
 async def call_synced(request: Request, token: str = ""):
-    if token != config.DASHBOARD_SYNC_TOKEN:
+    if not config.DASHBOARD_SYNC_TOKEN or token != config.DASHBOARD_SYNC_TOKEN:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     body = await request.json()
