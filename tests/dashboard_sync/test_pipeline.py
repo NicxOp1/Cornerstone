@@ -42,6 +42,7 @@ class ProcessCallHappyPathTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["recording_blob_url"], "https://blob.example.com/recordings/call_1.wav")
         self.assertEqual(result["transcript_blob_url"], "https://blob.example.com/transcripts/call_1.json")
         self.assertEqual(result["booking_effectiveness"], "confirmed")
+        self.assertRegex(result["synced_at"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
         sheets.upsert_call_row.assert_called_once_with("call_1", result)
 
 
@@ -118,8 +119,10 @@ class ProcessCallPartialFailureTests(unittest.IsolatedAsyncioTestCase):
     @patch("dashboard_sync.pipeline.booking_effectiveness.check_call", new_callable=AsyncMock)
     @patch("dashboard_sync.pipeline.blob_storage.upload_transcript")
     @patch("dashboard_sync.pipeline.blob_storage.upload_recording")
+    @patch("dashboard_sync.pipeline.print")
     async def test_booking_effectiveness_exception_becomes_pending(
         self,
+        mock_print,
         mock_upload_recording,
         mock_upload_transcript,
         mock_check_call,
@@ -134,6 +137,9 @@ class ProcessCallPartialFailureTests(unittest.IsolatedAsyncioTestCase):
         result = await pipeline.process_call(_minimal_call(), sheets, "fake-blob-token")
 
         self.assertEqual(result["booking_effectiveness"], "pending")
+        mock_print.assert_called_once_with(
+            "[dashboard_sync.pipeline] booking_effectiveness fallo para call_1: ServiceTitan down"
+        )
         sheets.upsert_call_row.assert_called_once_with("call_1", result)
 
     @patch("dashboard_sync.pipeline.booking_effectiveness.check_call", new_callable=AsyncMock)

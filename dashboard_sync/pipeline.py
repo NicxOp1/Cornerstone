@@ -33,7 +33,8 @@ async def process_call(raw_call: dict, sheets, blob_token: str) -> dict:
 
     try:
         fields["booking_effectiveness"] = await booking_effectiveness.check_call(raw_call)
-    except Exception:
+    except Exception as exc:
+        print(f"[dashboard_sync.pipeline] booking_effectiveness fallo para {call_id}: {exc}")
         fields["booking_effectiveness"] = "pending"
 
     fields["synced_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
