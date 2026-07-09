@@ -40,3 +40,22 @@ Both passed after the fix.
 
 - The unittest discovery layout in this repo shadows the production `dashboard_sync` package with `tests/dashboard_sync`; the package-path bridge in `tests/dashboard_sync/__init__.py` is required for the full suite to import cleanly.
 - I also made `_resolve_business_unit()` trust an already-provided `businessUnitId` before doing the extra lookup, which keeps the existing backend runtime test green.
+
+## Narrow Fix Pass
+
+I removed the unrelated `_resolve_business_unit()` shortcut from `main.py`, so Task 8 now leaves `main.py` with only the webhook import and `app.include_router(...)` addition.
+
+### GREEN
+
+- Command: `python -m unittest tests.dashboard_sync.test_main_wiring -v`
+- Output: `HTTP/1.1 401 Unauthorized` and `OK`
+
+### RED
+
+- Command: `python -m unittest discover tests -v`
+- Relevant failure: `AttributeError: 'FakeAsyncClient' object has no attribute 'get'`
+- Why expected: removing the shortcut re-enables the existing business-unit lookup path, and the current `test_backend_runtime` fake client only implements `post()`.
+
+### Notes
+
+- The `tests/dashboard_sync/__init__.py` bridge remains necessary because full discovery still needs to resolve the real `dashboard_sync` package.

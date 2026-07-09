@@ -537,9 +537,6 @@ async def _resolve_business_unit(headers, job_type_id, start_raw, end_raw, reque
     hueco para este horario exacto, en vez de confiar en la que arrastro el
     agente desde check_availability (que mezcla los slots de todas las BUs
     de un jobType en una sola lista sin indicar de cual era cada una)."""
-    if requested_bu:
-        return requested_bu
-
     job_types = await _get_job_types(headers)
     business_units = job_types.get(job_type_id) or []
     if len(business_units) <= 1:
