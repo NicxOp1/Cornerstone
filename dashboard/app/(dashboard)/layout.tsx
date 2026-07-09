@@ -1,19 +1,10 @@
-"use client";
+import { DashboardShell } from "@/components/DashboardShell";
+import { getCachedUnreadCount } from "@/lib/data/cached-repository";
 
-import { useState } from "react";
-import { Sidebar } from "@/components/Sidebar";
-import { Topbar } from "@/components/Topbar";
+export const dynamic = "force-dynamic";
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const unreadCount = await getCachedUnreadCount();
 
-  return (
-    <div className="flex min-h-dvh">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex flex-1 flex-col md:ml-0">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} lastSyncedAt={null} />
-        <main className="flex-1 p-4 md:p-6">{children}</main>
-      </div>
-    </div>
-  );
+  return <DashboardShell unreadCount={unreadCount}>{children}</DashboardShell>;
 }

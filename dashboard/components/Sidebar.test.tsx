@@ -58,4 +58,16 @@ describe("Sidebar", () => {
 
     expect(nav.className).toContain("-translate-x-full");
   });
+
+  it("muestra el badge de no leidos junto a Mensajes cuando unreadCount > 0", () => {
+    render(<Sidebar isOpen={true} onClose={() => {}} unreadCount={3} />);
+
+    expect(screen.getByText("3")).toBeInTheDocument();
+  });
+
+  it("no muestra badge cuando unreadCount es 0 o no se pasa", () => {
+    render(<Sidebar isOpen={true} onClose={() => {}} />);
+
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
 });

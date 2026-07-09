@@ -17,9 +17,10 @@ const NAV_ITEMS = [
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  unreadCount?: number;
 }
 
-export function Sidebar({ isOpen, onClose }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, unreadCount = 0 }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -45,12 +46,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                 href={item.href}
                 onClick={onClose}
                 className={cn(
-                  "block rounded-lg px-3 py-2 text-sm font-medium hover:bg-white/10",
+                  "flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium hover:bg-white/10",
                   pathname === item.href &&
                     "bg-cornerstone-yellow text-cornerstone-navy hover:bg-cornerstone-yellow"
                 )}
               >
-                {item.label}
+                <span>{item.label}</span>
+                {item.href === "/mensajes" && unreadCount > 0 ? (
+                  <span className="ml-2 rounded-full bg-cornerstone-yellow px-2 py-0.5 text-xs font-bold text-cornerstone-navy">
+                    {unreadCount}
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}
