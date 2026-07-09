@@ -45,7 +45,9 @@ class SheetsClient:
     def upsert_call_row(self, call_id: str, fields: dict) -> None:
         self._refresh_index_if_stale()
         headers = self._headers_row()
-        row = [self._cell_value(fields.get(h, "")) for h in headers]
+        row_fields = dict(fields)
+        row_fields["call_id"] = call_id
+        row = [self._cell_value(row_fields.get(h, "")) for h in headers]
 
         if call_id in self._index:
             row_number = self._index[call_id]

@@ -47,6 +47,24 @@ class UpsertNewCallTests(unittest.TestCase):
 
         self.assertEqual(ws._data[1], ["call_1", "", ""])
 
+    def test_missing_call_id_field_still_serializes_from_positional_call_id(self):
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "day", "summary"])
+        client = SheetsClient(ws, cache_ttl_s=10)
+
+        client.upsert_call_row("call_1", {"day": "2026-07-08", "summary": "test"})
+
+        self.assertEqual(ws._data[1], ["call_1", "2026-07-08", "test"])
+
+    def test_mismatched_call_id_field_uses_positional_call_id(self):
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "day", "summary"])
+        client = SheetsClient(ws, cache_ttl_s=10)
+
+        client.upsert_call_row("call_1", {"call_id": "wrong_id", "day": "2026-07-08", "summary": "test"})
+
+        self.assertEqual(ws._data[1], ["call_1", "2026-07-08", "test"])
+
     def test_list_fields_are_joined_with_commas_not_python_repr(self):
         """failed_tools llega como lista de normalize.extract() -- tiene que
         quedar en la celda como 'create_job,cancel_appointment', no como el
