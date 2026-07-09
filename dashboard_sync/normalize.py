@@ -52,7 +52,7 @@ def extract(call: dict) -> dict:
     call_analysis = call.get("call_analysis") or {}
     custom_data = call_analysis.get("custom_analysis_data") or {}
     tool_calls = call.get("tool_calls") or []
-    failed_tools = [tc["name"] for tc in tool_calls if tc.get("success") is False]
+    failed_tools = [tc["name"] for tc in tool_calls if tc.get("success") is False and tc.get("name")]
 
     duration_s = round((call.get("duration_ms") or 0) / 1000)
     day, start_time = _ms_to_eastern_day_and_time(call.get("start_timestamp"))

@@ -88,5 +88,18 @@ class ExtractFailedToolCallTests(unittest.TestCase):
         self.assertFalse(result["is_spam"])
 
 
+class ExtractMalformedToolCallTests(unittest.TestCase):
+    def test_failed_tool_without_name_is_skipped_not_crashing(self):
+        from dashboard_sync import normalize
+        call = {
+            "tool_calls": [
+                {"success": False},  # malformed: no "name"
+                {"name": "create_job", "success": False},
+            ],
+        }
+        result = normalize.extract(call)
+        self.assertEqual(result["failed_tools"], ["create_job"])
+
+
 if __name__ == "__main__":
     unittest.main()
