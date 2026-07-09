@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AudioPlayer } from "@/components/AudioPlayer";
-import { getCachedCallById } from "@/lib/data/cached-repository";
+import { FeedbackThread } from "@/components/FeedbackThread";
+import { getCachedCallById, getCachedFeedbackForCall } from "@/lib/data/cached-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,8 @@ export default async function CallDetailPage({ params }: CallDetailPageProps) {
   if (!call) {
     notFound();
   }
+
+  const feedback = await getCachedFeedbackForCall(params.callId);
 
   return (
     <div className="space-y-6">
@@ -43,6 +46,8 @@ export default async function CallDetailPage({ params }: CallDetailPageProps) {
         <h2 className="mb-2 text-sm font-semibold uppercase text-gray-500">Resumen</h2>
         <p className="text-sm">{call.summary || "Sin resumen disponible."}</p>
       </div>
+
+      <FeedbackThread callId={call.callId} initialFeedback={feedback} />
     </div>
   );
 }
