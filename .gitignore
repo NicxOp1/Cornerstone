@@ -8,7 +8,10 @@ venv
 CLAUDE.md
 README.md
 docs/
-tests/
+tests/*
+# Excepcion: los tests del pipeline dashboard_sync SI se commitean (trabajo
+# auditado). El resto de tests/ sigue siendo local-only por convencion.
+!tests/dashboard_sync/
 test
 test_email.py
 retell_scraper.py
@@ -18,3 +21,5 @@ retell_push_v7_draft.py
 retell_push_v8_draft.py
 build_agent_v7.py
 build_agent_v8.py
+booking_auditor.py
+booking_audit_cache.json
