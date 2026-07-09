@@ -7,9 +7,23 @@ type DeltaTone = "bad" | "good" | "neutral";
 type SparkTone = "accent" | "bad" | "good" | "ink";
 
 const deltaToneClasses: Record<DeltaTone, string> = {
-  bad: "bg-bad-soft text-bad",
-  good: "bg-good-soft text-good",
-  neutral: "bg-muted text-ink-soft"
+  bad: "border border-bad/20 bg-bad-soft text-bad",
+  good: "border border-good/20 bg-good-soft text-good",
+  neutral: "border border-white/6 bg-muted text-ink-soft"
+};
+
+const iconToneClasses: Record<SparkTone, string> = {
+  accent: "border border-accent/18 bg-accent/14 text-accent",
+  bad: "border border-bad/20 bg-bad-soft/80 text-bad",
+  good: "border border-good/20 bg-good-soft/80 text-good",
+  ink: "border border-line-strong/80 bg-navy/30 text-[rgb(var(--heat))]"
+};
+
+const sparkSurfaceClasses: Record<SparkTone, string> = {
+  accent: "border border-accent/16 bg-accent/8",
+  bad: "border border-bad/16 bg-bad-soft/60",
+  good: "border border-good/16 bg-good-soft/60",
+  ink: "border border-line/70 bg-muted/90"
 };
 
 interface KpiCardProps {
@@ -34,7 +48,7 @@ export function KpiCard({
   icon
 }: KpiCardProps) {
   return (
-    <Card className="flex h-full flex-col gap-5">
+    <Card className="flex h-full flex-col gap-5 overflow-hidden">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-ink-soft">
@@ -44,7 +58,12 @@ export function KpiCard({
             {value}
           </p>
         </div>
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-muted text-navy">
+        <div
+          className={cn(
+            "flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px]",
+            iconToneClasses[sparkTone]
+          )}
+        >
           {icon}
         </div>
       </div>
@@ -60,7 +79,12 @@ export function KpiCard({
         >
           {deltaLabel}
         </span>
-        <div className="h-10 w-24 rounded-2xl bg-muted/70 px-2 py-2">
+        <div
+          className={cn(
+            "h-11 w-28 rounded-[18px] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+            sparkSurfaceClasses[sparkTone]
+          )}
+        >
           <Sparkline points={trend} tone={sparkTone} />
         </div>
       </div>

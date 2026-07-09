@@ -42,6 +42,13 @@ function describeArc(cx: number, cy: number, radius: number, startAngle: number,
 export function Donut({ segments, totalLabel }: DonutProps) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const defaultIndex = segments.reduce((bestIndex, segment, index, all) => {
+    const best = all[bestIndex];
+    return segment.value > best.value ? index : bestIndex;
+  }, 0);
+  const focusIndex = activeIndex ?? defaultIndex;
+  const focusSegment = segments[focusIndex];
+  const focusShare = total === 0 ? 0 : (focusSegment.value / total) * 100;
 
   if (total === 0) {
     return (
@@ -86,10 +93,18 @@ export function Donut({ segments, totalLabel }: DonutProps) {
           <p className="mt-2 text-xs font-semibold uppercase tracking-[0.22em] text-ink-soft">
             {activeIndex === null ? totalLabel : segments[activeIndex].label}
           </p>
+          <p className="mt-2 text-xs text-ink-soft">
+            {activeIndex === null ? "Hover or tap a segment" : formatPercent(focusShare)}
+          </p>
         </div>
       </div>
 
       <div className="space-y-3">
+        <div className="rounded-[20px] border border-line/70 bg-muted/40 px-4 py-3 text-sm text-ink-soft">
+          <span className="font-semibold text-ink">{focusSegment.label}</span> accounts for{" "}
+          <span className="font-semibold text-ink">{formatPercent(focusShare)}</span> of tracked calls
+          in this window.
+        </div>
         {segments.map((segment, index) => {
           const share = (segment.value / total) * 100;
 
@@ -97,11 +112,14 @@ export function Donut({ segments, totalLabel }: DonutProps) {
             <button
               key={segment.label}
               type="button"
+              onClick={() => setActiveIndex((current) => (current === index ? null : index))}
               onMouseEnter={() => setActiveIndex(index)}
               onMouseLeave={() => setActiveIndex(null)}
+              onFocus={() => setActiveIndex(index)}
+              onBlur={() => setActiveIndex(null)}
               className={cn(
                 "flex w-full items-center justify-between rounded-2xl border border-line/80 bg-muted/50 px-4 py-3 text-left transition-colors",
-                activeIndex === index && "border-navy/20 bg-card"
+                focusIndex === index && "border-accent/18 bg-card"
               )}
             >
               <div className="flex items-center gap-3">

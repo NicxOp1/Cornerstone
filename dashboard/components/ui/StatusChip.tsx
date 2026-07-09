@@ -3,20 +3,20 @@ import { cn } from "@/lib/utils/cn";
 export type ChipTone = "bad" | "good" | "neg" | "neu" | "neutral" | "pos" | "warn";
 
 const toneClasses: Record<ChipTone, string> = {
-  good: "bg-good-soft text-good",
-  bad: "bg-bad-soft text-bad",
-  warn: "bg-accent/20 text-ink",
-  neutral: "bg-muted text-ink-soft",
-  pos: "bg-good-soft text-good",
-  neu: "bg-muted text-ink-soft",
-  neg: "bg-bad-soft text-bad"
+  good: "border border-good/20 bg-good-soft/90 text-good",
+  bad: "border border-bad/20 bg-bad-soft/90 text-bad",
+  warn: "border border-accent/18 bg-accent/16 text-accent",
+  neutral: "border border-white/6 bg-muted/90 text-ink-soft",
+  pos: "border border-good/20 bg-good-soft/90 text-good",
+  neu: "border border-line/80 bg-muted/90 text-[rgb(var(--heat))]",
+  neg: "border border-bad/20 bg-bad-soft/90 text-bad"
 };
 
 export function StatusChip({ tone, label }: { tone: ChipTone; label: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
         toneClasses[tone]
       )}
     >

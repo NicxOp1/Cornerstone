@@ -50,7 +50,7 @@ export function DashboardShell({
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenuClick={handleMenuClick} lastSyncedAt={lastSyncedAt} username={username} />
-        <main className="flex-1 px-4 pb-6 pt-4 md:px-6 md:pb-8 md:pt-5">{children}</main>
+        <main className="flex-1 px-4 pb-6 pt-4 md:px-6 md:pb-8 md:pt-5 xl:px-7">{children}</main>
       </div>
     </div>
   );

@@ -29,7 +29,7 @@ export function DateRangeSelector({ value }: { value: RangeOption }) {
   }
 
   return (
-    <div className="inline-flex rounded-full border border-line/80 bg-muted/60 p-1">
+    <div className="inline-flex rounded-full border border-line/80 bg-muted/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
       {OPTIONS.map((option) => (
         <button
           key={option.value}
@@ -38,7 +38,9 @@ export function DateRangeSelector({ value }: { value: RangeOption }) {
           aria-pressed={value === option.value}
           className={cn(
             "rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors",
-            value === option.value ? "bg-card text-ink shadow-sm" : "text-ink-soft hover:text-ink"
+            value === option.value
+              ? "bg-[linear-gradient(135deg,rgba(255,248,194,0.98),rgba(245,224,0,0.98))] text-accent-ink shadow-[0_10px_28px_rgba(245,224,0,0.18)]"
+              : "text-ink-soft hover:bg-white/5 hover:text-ink"
           )}
         >
           {option.label}

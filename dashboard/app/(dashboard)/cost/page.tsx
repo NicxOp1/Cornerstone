@@ -1,4 +1,4 @@
-import { Bars } from "@/components/charts/Bars";
+import { AreaTrend } from "@/components/charts/AreaTrend";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
@@ -81,7 +81,7 @@ export default async function CostPage({ searchParams }: { searchParams: { range
       <TabHeader
         eyebrow={rangeLabel}
         title="Cost"
-        description="What Harmony costs to run. Cost per minute leads; totals stay secondary."
+        description="What Harmony costs to run, with daily spend shown on a clearer money-by-day trend."
         range={range}
       />
 
@@ -102,14 +102,19 @@ export default async function CostPage({ searchParams }: { searchParams: { range
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">Spend</p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Cost per day</h2>
+              <p className="mt-2 text-sm text-ink-soft">
+                X-axis shows the day. Y-axis shows total USD spent on that day.
+              </p>
             </div>
-            <Bars
+            <AreaTrend
               data={daily.map((point) => ({
+                date: point.date,
                 label: formatDayShort(point.date),
-                values: { cents: point.cents }
+                value: point.cents
               }))}
-              series={[{ key: "cents", label: "Cost", colorVar: "navy" }]}
               format="currency"
+              strokeVar="accent"
+              fillVar="accent"
             />
           </Card>
         </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Logo } from "@/components/Logo";
 import { AreaTrend } from "@/components/charts/AreaTrend";
 import { Donut } from "@/components/charts/Donut";
 import { Heatmap } from "@/components/charts/Heatmap";
@@ -59,6 +60,8 @@ interface OverviewClientProps {
   totalCalls: number;
 }
 
+const WEEKDAY_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 function iconFor(name: KpiIcon) {
   switch (name) {
     case "bookings":
@@ -106,6 +109,48 @@ function getGreeting() {
   return "Good evening";
 }
 
+function getBusiestWindow(matrix: number[][]): string {
+  let best = 0;
+  let bestDay = 0;
+  let bestHour = 0;
+
+  matrix.forEach((row, rowIndex) => {
+    row.forEach((value, columnIndex) => {
+      if (value > best) {
+        best = value;
+        bestDay = rowIndex;
+        bestHour = columnIndex;
+      }
+    });
+  });
+
+  if (best === 0) {
+    return "Activity snapshot fills in after sync";
+  }
+
+  return `${WEEKDAY_LABELS[bestDay]} ${String(bestHour).padStart(2, "0")}:00 is the busiest block`;
+}
+
+function getSentimentLeader(segments: OverviewSentimentSegment[]): string {
+  const leader = segments.reduce<OverviewSentimentSegment | null>((best, segment) => {
+    if (segment.value <= 0) {
+      return best;
+    }
+
+    if (!best || segment.value > best.value) {
+      return segment;
+    }
+
+    return best;
+  }, null);
+
+  if (!leader) {
+    return "Sentiment mix appears once calls are scored";
+  }
+
+  return `${leader.label} leads the sentiment mix`;
+}
+
 export function OverviewClient({
   activityBars,
   activityHeatmap,
@@ -118,31 +163,61 @@ export function OverviewClient({
 }: OverviewClientProps) {
   const [mode, setMode] = useState<"day" | "hour">("day");
   const greeting = useMemo(() => getGreeting(), []);
+  const busiestWindow = useMemo(() => getBusiestWindow(activityHeatmap), [activityHeatmap]);
+  const sentimentLeader = useMemo(() => getSentimentLeader(sentimentSegments), [sentimentSegments]);
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-col gap-5 rounded-[32px] border border-line/70 bg-card/80 p-6 shadow-panel md:flex-row md:items-end md:justify-between md:p-8">
-        <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">
-            {rangeLabel || "SYNC PENDING"}
-          </p>
-          <div>
-            <h1 className="font-display text-4xl leading-none tracking-tight text-ink md:text-6xl">
-              {greeting}
-            </h1>
-            <p className="mt-3 text-sm leading-6 text-ink-soft md:text-base">
-              {formatNumber(totalCalls)} calls tracked in this window.
-            </p>
+      <header className="relative overflow-hidden rounded-[36px] border border-line/70 bg-[linear-gradient(180deg,rgba(8,11,21,0.98),rgba(18,24,43,0.94))] p-6 shadow-panel md:p-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,224,0,0.2),transparent_30%),radial-gradient(circle_at_left_center,rgba(81,92,191,0.18),transparent_22%)]" />
+        <div className="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl space-y-5">
+            <span className="inline-flex rounded-full border border-accent/18 bg-accent/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
+              {rangeLabel || "Live window"}
+            </span>
+            <Logo className="h-14 md:h-16" />
+            <div>
+              <h1 className="font-display text-4xl leading-none tracking-tight text-white md:text-6xl">
+                {greeting}
+              </h1>
+              <p className="mt-4 max-w-2xl text-sm leading-7 text-white/70 md:text-base">
+                {formatNumber(totalCalls)} calls tracked in this window. {busiestWindow}. {sentimentLeader}.
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <DateRangeSelector value={range} />
-          <button
-            type="button"
-            className="inline-flex h-11 items-center justify-center rounded-full border border-navy/10 bg-navy px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-navy-2"
-          >
-            Export report
-          </button>
+
+          <div className="flex flex-col gap-4 xl:items-end">
+            <div className="flex flex-wrap items-center gap-3">
+              <DateRangeSelector value={range} />
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(245,224,0,1),rgba(255,244,134,0.98))] px-5 text-sm font-semibold text-accent-ink shadow-[0_16px_36px_rgba(245,224,0,0.18)] transition hover:brightness-[1.02]"
+              >
+                Export report
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
+              <div className="rounded-[24px] border border-white/10 bg-white/6 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/52">
+                  Calls tracked
+                </p>
+                <p className="mt-3 text-2xl font-semibold text-white">{formatNumber(totalCalls)}</p>
+              </div>
+              <div className="rounded-[24px] border border-white/10 bg-white/6 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/52">
+                  Best read
+                </p>
+                <p className="mt-3 text-sm font-semibold leading-6 text-white">{sentimentLeader}</p>
+              </div>
+              <div className="rounded-[24px] border border-white/10 bg-white/6 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/52">
+                  Activity
+                </p>
+                <p className="mt-3 text-sm font-semibold leading-6 text-white">{busiestWindow}</p>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -165,10 +240,13 @@ export function OverviewClient({
       <Card className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">
-              Activity
-            </p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent/75">Activity</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Call activity</h2>
+            <p className="mt-2 text-sm text-ink-soft">
+              {mode === "day"
+                ? "Resolved versus unresolved volume by day."
+                : "Weekly concentration by hour, from quiet blocks to busy spikes."}
+            </p>
           </div>
           <SegmentToggle
             options={[
@@ -203,7 +281,7 @@ export function OverviewClient({
               description="We need synced calls before the volume trend can be drawn."
             />
           ) : (
-            <AreaTrend data={dailyTrend} format="number" />
+            <AreaTrend data={dailyTrend} format="number" strokeVar="navy-2" fillVar="navy-2" />
           )}
         </Card>
 

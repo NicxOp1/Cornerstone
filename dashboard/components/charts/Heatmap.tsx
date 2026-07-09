@@ -29,6 +29,7 @@ export function Heatmap({ matrix }: HeatmapProps) {
   const cellWidth = innerWidth / columns;
   const cellHeight = innerHeight / rows;
   const maxValue = Math.max(...matrix.flat(), 0);
+  const legendSteps = [0.15, 0.32, 0.5, 0.7, 0.95];
 
   return (
     <div className="relative overflow-x-auto">
@@ -75,8 +76,8 @@ export function Heatmap({ matrix }: HeatmapProps) {
                   width={cellWidth - 4}
                   height={cellHeight - 4}
                   rx="8"
-                  fill="rgb(var(--navy))"
-                  fillOpacity={0.12 + ratio * 0.88}
+                  fill={ratio > 0.72 ? "rgb(var(--accent))" : "rgb(var(--navy-2))"}
+                  fillOpacity={value === 0 ? 0.16 : 0.28 + ratio * 0.72}
                   stroke={value > 0 && value === maxValue ? "rgb(var(--accent))" : "transparent"}
                   strokeWidth={value > 0 && value === maxValue ? 2 : 0}
                 />
@@ -114,6 +115,23 @@ export function Heatmap({ matrix }: HeatmapProps) {
         y={tooltip?.y ?? 0}
         visible={tooltip !== null}
       />
+
+      <div className="mt-4 flex items-center justify-between gap-4 text-xs text-ink-soft">
+        <span className="uppercase tracking-[0.16em]">Quiet</span>
+        <div className="flex flex-1 items-center gap-2">
+          {legendSteps.map((step) => (
+            <span
+              key={step}
+              className="h-3 flex-1 rounded-full"
+              style={{
+                backgroundColor: step > 0.72 ? "rgb(var(--accent))" : "rgb(var(--navy-2))",
+                opacity: step
+              }}
+            />
+          ))}
+        </div>
+        <span className="uppercase tracking-[0.16em]">Busy</span>
+      </div>
     </div>
   );
 }

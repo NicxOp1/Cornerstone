@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
@@ -93,7 +94,7 @@ export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: Sideb
       <nav
         aria-label="Primary navigation"
         className={cn(
-          "fixed inset-y-3 left-3 z-40 flex w-[280px] transform flex-col rounded-[32px] border border-white/10 bg-navy px-3 py-4 text-white shadow-[0_28px_90px_rgba(15,23,42,0.34)] transition-all duration-300 md:sticky md:top-3 md:h-[calc(100dvh-1.5rem)]",
+          "fixed inset-y-3 left-3 z-40 flex w-[280px] transform flex-col rounded-[34px] border border-white/10 bg-[linear-gradient(180deg,rgba(24,30,77,0.98),rgba(10,13,27,0.98))] px-3 py-4 text-white shadow-[0_30px_90px_rgba(2,6,20,0.48)] transition-all duration-300 md:sticky md:top-3 md:h-[calc(100dvh-1.5rem)]",
           isOpen ? "translate-x-0" : "-translate-x-[calc(100%+1rem)] md:translate-x-0",
           isCollapsed ? "md:w-[88px]" : "md:w-[246px]"
         )}
@@ -101,14 +102,14 @@ export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: Sideb
         <Link
           href="/"
           onClick={onClose}
-          className="mb-6 flex items-center gap-3 rounded-[24px] bg-white/6 px-3 py-3"
-          aria-label="Harmony overview"
+          className="mb-6 flex items-center gap-3 rounded-[24px] border border-white/8 bg-white/6 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+          aria-label="Cornerstone Harmony home"
         >
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-sm font-semibold uppercase tracking-[0.2em] text-accent-ink">
-            H
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-[#070b16] shadow-[0_16px_30px_rgba(0,0,0,0.22)]">
+            <Logo variant="mark" className="h-10 w-10" />
           </div>
           <div className={cn("min-w-0", isCollapsed && "hidden")}>
-            <p className="truncate text-sm font-semibold uppercase tracking-[0.2em] text-white/68">
+            <p className="truncate text-sm font-semibold uppercase tracking-[0.2em] text-white/60">
               Harmony
             </p>
             <p className="truncate text-base font-semibold text-white">Cornerstone Services</p>
@@ -126,7 +127,9 @@ export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: Sideb
                   onClick={onClose}
                   className={cn(
                     "group relative flex items-center rounded-[22px] px-3 py-3 text-sm font-medium transition-colors",
-                    active ? "bg-white text-navy shadow-sm" : "text-white/72 hover:bg-white/8 hover:text-white"
+                    active
+                      ? "bg-[linear-gradient(135deg,rgba(255,248,194,0.98),rgba(245,224,0,0.98))] text-accent-ink shadow-[0_18px_40px_rgba(245,224,0,0.14)]"
+                      : "text-white/72 hover:bg-white/8 hover:text-white"
                   )}
                 >
                   <span
@@ -157,7 +160,7 @@ export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: Sideb
 
         <div
           className={cn(
-            "mt-auto rounded-[24px] border border-white/10 bg-white/6 px-3 py-4",
+            "mt-auto rounded-[24px] border border-white/10 bg-white/6 px-3 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]",
             isCollapsed && "hidden"
           )}
         >

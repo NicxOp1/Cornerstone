@@ -97,7 +97,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
             setPage(0);
           }}
           placeholder="Search phone or summary"
-          className="w-full flex-1 rounded-full border border-line bg-muted/50 px-4 py-2.5 text-sm text-ink outline-none focus:border-navy/30 md:max-w-xs"
+          className="w-full flex-1 rounded-full border border-line bg-muted/70 px-4 py-2.5 text-sm text-ink outline-none focus:border-accent/25 md:max-w-xs"
         />
         <div className="flex flex-wrap gap-2">
           {SELECTS.map((select) => (
@@ -106,7 +106,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
               value={filters[select.key]}
               onChange={(event) => update(select.key, event.target.value)}
               aria-label={select.label}
-              className="rounded-full border border-line bg-muted/50 px-3.5 py-2.5 text-sm font-medium text-ink-soft outline-none focus:border-navy/30"
+              className="rounded-full border border-line bg-muted/70 px-3.5 py-2.5 text-sm font-medium text-ink-soft outline-none focus:border-accent/25"
             >
               {select.options.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -139,7 +139,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
               </thead>
               <tbody className="divide-y divide-line/70">
                 {rows.map((call) => (
-                  <tr key={call.callId} className="group transition-colors hover:bg-muted/50">
+                  <tr key={call.callId} className="group transition-colors hover:bg-white/[0.03]">
                     <td className="whitespace-nowrap px-5 py-3.5 text-ink-soft">
                       <Link href={`/calls/${call.callId}`} className="block font-medium text-ink">
                         {call.day}
@@ -166,7 +166,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
                     </td>
                     <td className="max-w-[280px] px-5 py-3.5 text-ink-soft">
                       <Link href={`/calls/${call.callId}`} className="line-clamp-1 block">
-                        {call.summary || "—"}
+                        {call.summary || "-"}
                       </Link>
                     </td>
                   </tr>
@@ -177,7 +177,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
 
           <div className="flex items-center justify-between gap-4 border-t border-line/80 px-5 py-3 text-sm text-ink-soft">
             <span>
-              {filtered.length} call{filtered.length === 1 ? "" : "s"} · page {current + 1} of {pageCount}
+              {filtered.length} call{filtered.length === 1 ? "" : "s"} - page {current + 1} of {pageCount}
             </span>
             <div className="flex gap-2">
               <button

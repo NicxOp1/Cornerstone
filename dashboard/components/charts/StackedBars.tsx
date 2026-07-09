@@ -31,13 +31,17 @@ export function StackedBars({ data }: StackedBarsProps) {
 
   const width = 760;
   const height = 280;
-  const padding = { top: 12, right: 16, bottom: 42, left: 16 };
+  const padding = { top: 16, right: 18, bottom: 42, left: 56 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
   const step = innerWidth / data.length;
   const barWidth = Math.max(12, step * 0.72);
   const maxTotal = Math.max(...data.map((entry) => entry.total), 1);
   const labelEvery = data.length > 10 ? Math.ceil(data.length / 7) : 1;
+  const yTicks = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    return Math.round((maxTotal - maxTotal * ratio) * 10) / 10;
+  });
 
   return (
     <div className="relative overflow-x-auto">
@@ -46,6 +50,32 @@ export function StackedBars({ data }: StackedBarsProps) {
         className="h-[280px] min-w-[640px] w-full"
         onMouseLeave={() => setTooltip(null)}
       >
+        {yTicks.map((tick, index) => {
+          const y = padding.top + innerHeight - (tick / maxTotal) * innerHeight;
+
+          return (
+            <g key={`tick-${index}`}>
+              <line
+                x1={padding.left}
+                y1={y}
+                x2={width - padding.right}
+                y2={y}
+                stroke="rgb(var(--line))"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+              />
+              <text
+                x={padding.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                className="fill-ink-soft text-[11px] font-medium"
+              >
+                {tick}
+              </text>
+            </g>
+          );
+        })}
+
         <line
           x1={padding.left}
           y1={padding.top + innerHeight}
@@ -70,7 +100,8 @@ export function StackedBars({ data }: StackedBarsProps) {
                 width={barWidth}
                 height={Math.max(failHeight, 3)}
                 rx={barWidth / 3}
-                fill="rgb(var(--bad-soft))"
+                fill="rgb(var(--bad))"
+                fillOpacity="0.76"
               />
               <rect
                 x={x}

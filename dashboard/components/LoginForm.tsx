@@ -46,7 +46,7 @@ export function LoginForm() {
           autoComplete="username"
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          className="h-12 w-full rounded-2xl border border-line bg-ground px-4 text-base text-ink outline-none transition placeholder:text-ink-soft focus:border-navy/20"
+          className="h-12 w-full rounded-[18px] border border-line bg-ground px-4 text-base text-ink outline-none transition placeholder:text-ink-soft focus:border-accent/25"
           required
         />
       </div>
@@ -61,7 +61,7 @@ export function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-12 w-full rounded-2xl border border-line bg-ground px-4 text-base text-ink outline-none transition focus:border-navy/20"
+          className="h-12 w-full rounded-[18px] border border-line bg-ground px-4 text-base text-ink outline-none transition focus:border-accent/25"
           required
         />
       </div>
@@ -69,7 +69,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={loading}
-        className="h-12 w-full rounded-2xl bg-navy font-semibold text-white transition hover:bg-navy-2 disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-12 w-full rounded-[18px] bg-[linear-gradient(135deg,rgba(245,224,0,1),rgba(255,245,147,0.98))] font-semibold text-accent-ink transition hover:brightness-[1.02] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {loading ? "Signing in..." : "Sign in"}
       </button>

@@ -29,11 +29,20 @@ function Icon({ name }: { name: "positive" | "shield" | "stalled" | "negative" }
     stalled: "M12 8v4M12 16h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z",
     negative: "M16 15s-1.5-2-4-2-4 2-4 2M9 9h.01M15 9h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
   };
+
   return (
     <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
       <path d={paths[name]} />
     </svg>
   );
+}
+
+function formatIntentLabel(intent: string): string {
+  return intent
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export default async function ConversationPage({ searchParams }: { searchParams: { range?: string } }) {
@@ -43,14 +52,14 @@ export default async function ConversationPage({ searchParams }: { searchParams:
   const buckets = dayBuckets(calls);
   const sentiments = sentimentBreakdown(calls);
   const spamSeries = spamOverTime(calls);
-  const stalledSeries = stalledPerDay(calls);
+  const droppedSeries = stalledPerDay(calls);
   const intents = intentBreakdown(calls);
   const rangeLabel =
     spamSeries.length > 0 ? formatRangeEyebrow(spamSeries[0].date, spamSeries[spamSeries.length - 1].date) : "";
 
   const positiveDelta = kpiDelta(calls, previous, positiveRate, true);
   const spamDelta = kpiDelta(calls, previous, spamRate, null);
-  const stalledDelta = kpiDelta(calls, previous, (entries) => entries.filter((call) => call.isStalled).length, false);
+  const droppedDelta = kpiDelta(calls, previous, (entries) => entries.filter((call) => call.isStalled).length, false);
   const negativeDelta = kpiDelta(calls, previous, negativeRate, false);
 
   const kpis = [
@@ -75,11 +84,11 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       icon: <Icon name="shield" />
     },
     {
-      label: "Stalled calls",
+      label: "Dropped / silent",
       value: formatNumber(stalledCount(calls)),
-      footnote: "Went silent or the caller dropped — often caller-side",
-      deltaLabel: stalledDelta.label,
-      deltaTone: stalledDelta.tone,
+      footnote: "Calls that went silent or dropped before resolution",
+      deltaLabel: droppedDelta.label,
+      deltaTone: droppedDelta.tone,
       trend: buckets.map((bucket) => bucket.filter((call) => call.isStalled).length),
       sparkTone: "ink" as const,
       icon: <Icon name="stalled" />
@@ -101,7 +110,7 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       <TabHeader
         eyebrow={rangeLabel}
         title="Conversation"
-        description="Conversation quality: sentiment, spam Harmony filters out, and stalled calls."
+        description="Conversation quality: sentiment, spam Harmony filters out, and calls that dropped or went silent."
         range={range}
       />
 
@@ -171,7 +180,10 @@ export default async function ConversationPage({ searchParams }: { searchParams:
                 />
               ) : (
                 <Bars
-                  data={intents.map((entry) => ({ label: entry.intent, values: { count: entry.count } }))}
+                  data={intents.map((entry) => ({
+                    label: formatIntentLabel(entry.intent),
+                    values: { count: entry.count }
+                  }))}
                   series={[{ key: "count", label: "Calls", colorVar: "navy" }]}
                 />
               )}
@@ -180,14 +192,14 @@ export default async function ConversationPage({ searchParams }: { searchParams:
             <Card className="space-y-5">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">Flow</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Stalled per day</h2>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">Dropped / silent per day</h2>
               </div>
               <Bars
-                data={stalledSeries.map((point) => ({
+                data={droppedSeries.map((point) => ({
                   label: formatDayShort(point.date),
-                  values: { stalled: point.stalled }
+                  values: { dropped: point.stalled }
                 }))}
-                series={[{ key: "stalled", label: "Stalled", colorVar: "neu" }]}
+                series={[{ key: "dropped", label: "Dropped / silent", colorVar: "neu" }]}
               />
             </Card>
           </section>

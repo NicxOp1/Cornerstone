@@ -51,7 +51,7 @@ export function previousWindow(calls: Call[]): Call[] {
 
 export function deltaBadge(change: number | null, higherIsBetter: boolean | null): DeltaBadge {
   if (change === null) {
-    return { label: "No prior window", tone: "neutral" };
+    return { label: "First window", tone: "neutral" };
   }
 
   if (change === 0) {

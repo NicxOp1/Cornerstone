@@ -1,15 +1,15 @@
 import { cn } from "@/lib/utils/cn";
 
-const toneClasses = {
-  accent: "stroke-accent",
-  bad: "stroke-bad",
-  good: "stroke-good",
-  ink: "stroke-ink"
+const toneMap = {
+  accent: "rgb(var(--accent))",
+  bad: "rgb(var(--bad))",
+  good: "rgb(var(--good))",
+  ink: "rgb(var(--heat))"
 } as const;
 
 interface SparklineProps {
   points: number[];
-  tone?: keyof typeof toneClasses;
+  tone?: keyof typeof toneMap;
   className?: string;
 }
 
@@ -35,7 +35,8 @@ export function Sparkline({ points, tone = "accent", className }: SparklineProps
         strokeWidth="7"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={cn("fill-none", toneClasses[tone])}
+        className={cn("fill-none")}
+        stroke={toneMap[tone]}
         vectorEffect="non-scaling-stroke"
       />
     </svg>

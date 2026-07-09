@@ -61,13 +61,13 @@ export function Topbar({ onMenuClick, lastSyncedAt, username }: TopbarProps) {
   const initials = initialsFromUsername(username);
 
   return (
-    <header className="sticky top-0 z-20 border-b border-line/70 bg-ground/85 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b border-line/60 bg-ground/78 backdrop-blur-xl">
       <div className="flex min-h-[72px] items-center gap-3 px-4 md:px-6">
         <button
           type="button"
           onClick={onMenuClick}
           aria-label="Toggle navigation"
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-ink transition hover:border-navy/15 hover:text-navy"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card/90 text-ink transition hover:border-accent/25 hover:text-accent"
         >
           <MenuIcon />
         </button>
@@ -78,29 +78,29 @@ export function Topbar({ onMenuClick, lastSyncedAt, username }: TopbarProps) {
           </span>
           <input
             type="search"
-            placeholder="Search calls, phone, summary"
-            className="h-11 w-full rounded-full border border-line bg-card pl-11 pr-4 text-sm text-ink outline-none transition placeholder:text-ink-soft focus:border-navy/20"
+            placeholder="Search calls, numbers, summaries"
+            className="h-11 w-full rounded-full border border-line bg-card/88 pl-11 pr-4 text-sm text-ink outline-none transition placeholder:text-ink-soft focus:border-accent/25"
           />
         </label>
 
         <div className="ml-auto flex items-center gap-3">
           {syncedLabel ? (
-            <div className="hidden rounded-full border border-line bg-card px-4 py-2 text-xs font-medium text-ink-soft lg:block">
+            <div className="hidden rounded-full border border-line bg-card/88 px-4 py-2 text-xs font-medium text-ink-soft lg:block">
               Updated {syncedLabel}
             </div>
           ) : null}
 
           <button
             type="button"
-            className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-ink transition hover:border-navy/15 hover:text-navy"
+            className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card/90 text-ink transition hover:border-accent/25 hover:text-accent"
             aria-label="Notifications"
           >
             <BellIcon />
             <span className="absolute right-3 top-3 h-2.5 w-2.5 rounded-full bg-accent" />
           </button>
 
-          <div className="flex items-center gap-3 rounded-full border border-line bg-card px-2 py-2 pl-2.5 pr-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-navy text-xs font-semibold uppercase tracking-[0.18em] text-white">
+          <div className="flex items-center gap-3 rounded-full border border-line bg-card/90 px-2 py-2 pl-2.5 pr-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(245,224,0,1),rgba(255,246,167,0.98))] text-xs font-semibold uppercase tracking-[0.18em] text-accent-ink">
               {initials}
             </div>
             <div className="hidden md:block">

@@ -53,7 +53,7 @@ export function Bars({ data, series, format = "number" }: BarsProps) {
 
   const width = 760;
   const height = 280;
-  const padding = { top: 12, right: 16, bottom: 42, left: 16 };
+  const padding = { top: 16, right: 18, bottom: 42, left: 56 };
   const innerWidth = width - padding.left - padding.right;
   const innerHeight = height - padding.top - padding.bottom;
   const step = innerWidth / data.length;
@@ -61,6 +61,10 @@ export function Bars({ data, series, format = "number" }: BarsProps) {
   const totals = data.map((entry) => series.reduce((sum, item) => sum + (entry.values[item.key] ?? 0), 0));
   const maxTotal = Math.max(...totals, 1);
   const labelEvery = data.length > 10 ? Math.ceil(data.length / 7) : 1;
+  const yTicks = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    return Math.round((maxTotal - maxTotal * ratio) * 10) / 10;
+  });
 
   return (
     <div className="relative overflow-x-auto">
@@ -69,6 +73,32 @@ export function Bars({ data, series, format = "number" }: BarsProps) {
         className="h-[280px] min-w-[560px] w-full"
         onMouseLeave={() => setTooltip(null)}
       >
+        {yTicks.map((tick, index) => {
+          const y = padding.top + innerHeight - (tick / maxTotal) * innerHeight;
+
+          return (
+            <g key={`tick-${index}`}>
+              <line
+                x1={padding.left}
+                y1={y}
+                x2={width - padding.right}
+                y2={y}
+                stroke="rgb(var(--line))"
+                strokeDasharray="4 6"
+                strokeWidth="1"
+              />
+              <text
+                x={padding.left - 10}
+                y={y + 4}
+                textAnchor="end"
+                className="fill-ink-soft text-[11px] font-medium"
+              >
+                {formatValue(tick, format)}
+              </text>
+            </g>
+          );
+        })}
+
         <line
           x1={padding.left}
           y1={padding.top + innerHeight}
@@ -97,7 +127,7 @@ export function Bars({ data, series, format = "number" }: BarsProps) {
                     y={cursorY}
                     width={barWidth}
                     height={Math.max(barHeight, 2)}
-                    rx={Math.min(barWidth / 3, 6)}
+                    rx={Math.min(barWidth / 3, 8)}
                     fill={`rgb(var(--${item.colorVar}))`}
                   />
                 ) : null;

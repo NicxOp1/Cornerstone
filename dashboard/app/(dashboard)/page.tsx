@@ -81,7 +81,7 @@ function buildPreviousWindow(calls: Call[]): Call[] {
 
 function buildDeltaLabel(change: number | null, higherIsBetter: boolean | null) {
   if (change === null) {
-    return { label: "No prior window", tone: "neutral" as const };
+    return { label: "First window", tone: "neutral" as const };
   }
 
   if (change === 0) {

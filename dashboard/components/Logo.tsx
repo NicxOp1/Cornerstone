@@ -1,85 +1,50 @@
 import { cn } from "@/lib/utils/cn";
 
 interface LogoProps {
-  /**
-   * "onLight" (fondo claro: topbar/login) pinta el wordmark en navy.
-   * "onDark" (fondo navy: sidebar) lo pinta en amarillo para contraste.
-   */
-  tone?: "onLight" | "onDark";
   className?: string;
+  variant?: "full" | "mark";
 }
 
-const NAVY = "#2A2A8C";
-const YELLOW = "#F5E000";
-
-/**
- * Wordmark de Cornerstone Services reproducido en SVG con la paleta de marca.
- * Para usar el logo raster exacto en su lugar, dejar el PNG en
- * `public/cornerstone-logo.png` y reemplazar este SVG por un <Image>.
- */
-export function Logo({ tone = "onLight", className }: LogoProps) {
-  const wordFill = tone === "onDark" ? YELLOW : NAVY;
-  const wordStroke = tone === "onDark" ? "#1E1B4B" : YELLOW;
-
+function MarkSvg({ className }: { className?: string }) {
   return (
     <svg
-      viewBox="0 0 960 300"
+      viewBox="0 0 96 96"
+      role="img"
+      aria-label="Cornerstone mark"
+      className={cn("h-10 w-10", className)}
+    >
+      <defs>
+        <linearGradient id="cornerstone-mark-bg" x1="18" x2="78" y1="10" y2="84" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#FFF06A" />
+          <stop offset="100%" stopColor="#F5E000" />
+        </linearGradient>
+      </defs>
+      <rect x="8" y="8" width="80" height="80" rx="24" fill="url(#cornerstone-mark-bg)" />
+      <path
+        d="M31 24h11.6l8 12 8.2-12H70v48H58V44.6l-7.4 10.9h-.4l-7.2-10.7V72H31V24Z"
+        fill="#2A2A8C"
+      />
+    </svg>
+  );
+}
+
+export function Logo({ className, variant = "full" }: LogoProps) {
+  if (variant === "mark") {
+    return <MarkSvg className={className} />;
+  }
+
+  return (
+    <div
       role="img"
       aria-label="Cornerstone Services"
-      className={cn("h-9 w-auto", className)}
+      className={cn("inline-flex items-center", className)}
     >
-      {/* Swoosh superior */}
-      <path
-        fill={YELLOW}
-        d="M470 44 C 650 4, 838 14, 924 96 C 828 44, 652 46, 502 70 C 490 62, 478 52, 470 44 Z"
+      <img
+        src="/cornerstone-logo.png"
+        alt=""
+        aria-hidden="true"
+        className="h-full w-auto object-contain drop-shadow-[0_10px_28px_rgba(0,0,0,0.28)]"
       />
-      {/* Swoosh inferior (barrido principal) */}
-      <path
-        fill={YELLOW}
-        d="M36 206 C 300 250, 664 250, 918 156 C 712 224, 344 224, 128 190 C 84 184, 52 192, 36 206 Z"
-      />
-      {/* Wordmark */}
-      <text
-        x="480"
-        y="168"
-        textAnchor="middle"
-        fontFamily="'Arial Black', 'Arial Narrow', Impact, sans-serif"
-        fontWeight="900"
-        fontSize="118"
-        letterSpacing="-4"
-        fill={wordFill}
-        stroke={wordStroke}
-        strokeWidth="3"
-        paintOrder="stroke"
-      >
-        CORNERSTONE
-      </text>
-      {/* Barra + SERVICES + LLC */}
-      <rect x="352" y="242" width="212" height="12" fill={YELLOW} />
-      <text
-        x="584"
-        y="262"
-        fontFamily="'Arial Black', 'Arial Narrow', Impact, sans-serif"
-        fontWeight="900"
-        fontSize="44"
-        letterSpacing="6"
-        fill={wordFill}
-        stroke={wordStroke}
-        strokeWidth="1.5"
-        paintOrder="stroke"
-      >
-        SERVICES
-      </text>
-      <text
-        x="892"
-        y="258"
-        fontFamily="'Arial Black', sans-serif"
-        fontWeight="900"
-        fontSize="18"
-        fill={wordFill}
-      >
-        LLC
-      </text>
-    </svg>
+    </div>
   );
 }

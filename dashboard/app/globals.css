@@ -3,81 +3,84 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: light;
-  --ground: 244 245 251;
-  --card: 255 255 255;
-  --ink: 22 27 45;
-  --ink-soft: 95 104 129;
-  --muted: 236 240 248;
-  --line: 216 223 238;
-  --navy: 30 27 75;
-  --navy-2: 50 44 117;
+  color-scheme: dark;
+  --ground: 6 9 19;
+  --ground-2: 11 16 29;
+  --card: 15 20 35;
+  --card-2: 23 31 52;
+  --ink: 241 245 255;
+  --ink-soft: 161 171 196;
+  --muted: 18 26 46;
+  --line: 42 53 88;
+  --line-strong: 72 89 132;
+  --navy: 39 43 131;
+  --navy-2: 81 92 191;
   --accent: 245 224 0;
-  --accent-ink: 29 29 43;
-  --good: 31 157 92;
-  --good-soft: 228 247 236;
-  --bad: 200 75 69;
-  --bad-soft: 253 236 233;
-  --heat: 89 95 179;
-  --shadow: 17 24 39;
-  --pos: 31 157 92;
-  --neu: 74 85 204;
-  --neg: 200 75 69;
-  --unk: 179 187 204;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --ground: 10 14 27;
-    --card: 16 23 42;
-    --ink: 238 242 255;
-    --ink-soft: 160 172 198;
-    --muted: 25 34 59;
-    --line: 40 53 86;
-    --navy: 35 42 78;
-    --navy-2: 54 64 108;
-    --accent: 245 224 0;
-    --accent-ink: 28 30 40;
-    --good: 49 196 122;
-    --good-soft: 18 61 40;
-    --bad: 239 103 95;
-    --bad-soft: 68 27 31;
-    --heat: 122 132 230;
-    --shadow: 2 6 23;
-    --pos: 49 196 122;
-    --neu: 132 144 255;
-    --neg: 239 103 95;
-    --unk: 107 121 152;
-  }
+  --accent-ink: 39 43 131;
+  --good: 81 214 138;
+  --good-soft: 17 63 43;
+  --bad: 255 114 102;
+  --bad-soft: 76 30 34;
+  --heat: 145 155 255;
+  --shadow: 2 8 22;
+  --pos: 81 214 138;
+  --neu: 122 136 255;
+  --neg: 255 114 102;
+  --unk: 120 133 168;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
+  --ground: 242 244 250;
+  --ground-2: 233 238 248;
+  --card: 255 255 255;
+  --card-2: 245 247 252;
+  --ink: 20 25 46;
+  --ink-soft: 95 105 132;
+  --muted: 233 238 248;
+  --line: 212 220 236;
+  --line-strong: 173 187 216;
+  --navy: 39 43 131;
+  --navy-2: 81 92 191;
+  --accent: 245 224 0;
+  --accent-ink: 39 43 131;
+  --good: 34 162 99;
+  --good-soft: 226 246 235;
+  --bad: 208 77 70;
+  --bad-soft: 251 234 231;
+  --heat: 108 116 214;
+  --shadow: 17 24 39;
+  --pos: 34 162 99;
+  --neu: 81 92 191;
+  --neg: 208 77 70;
+  --unk: 171 180 204;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ground: 10 14 27;
-  --card: 16 23 42;
-  --ink: 238 242 255;
-  --ink-soft: 160 172 198;
-  --muted: 25 34 59;
-  --line: 40 53 86;
-  --navy: 35 42 78;
-  --navy-2: 54 64 108;
+  --ground: 6 9 19;
+  --ground-2: 11 16 29;
+  --card: 15 20 35;
+  --card-2: 23 31 52;
+  --ink: 241 245 255;
+  --ink-soft: 161 171 196;
+  --muted: 18 26 46;
+  --line: 42 53 88;
+  --line-strong: 72 89 132;
+  --navy: 39 43 131;
+  --navy-2: 81 92 191;
   --accent: 245 224 0;
-  --accent-ink: 28 30 40;
-  --good: 49 196 122;
-  --good-soft: 18 61 40;
-  --bad: 239 103 95;
-  --bad-soft: 68 27 31;
-  --heat: 122 132 230;
-  --shadow: 2 6 23;
-  --pos: 49 196 122;
-  --neu: 132 144 255;
-  --neg: 239 103 95;
-  --unk: 107 121 152;
+  --accent-ink: 39 43 131;
+  --good: 81 214 138;
+  --good-soft: 17 63 43;
+  --bad: 255 114 102;
+  --bad-soft: 76 30 34;
+  --heat: 145 155 255;
+  --shadow: 2 8 22;
+  --pos: 81 214 138;
+  --neu: 122 136 255;
+  --neg: 255 114 102;
+  --unk: 120 133 168;
 }
 
 html {
@@ -88,12 +91,14 @@ html {
 body {
   min-height: 100dvh;
   background:
-    radial-gradient(circle at top left, rgb(var(--accent) / 0.08), transparent 26%),
-    radial-gradient(circle at top right, rgb(var(--navy) / 0.08), transparent 24%),
-    linear-gradient(180deg, rgb(var(--ground)), rgb(var(--ground)));
+    radial-gradient(circle at top right, rgb(var(--accent) / 0.14), transparent 28%),
+    radial-gradient(circle at left 18%, rgb(var(--navy-2) / 0.22), transparent 24%),
+    radial-gradient(circle at bottom left, rgb(var(--navy) / 0.2), transparent 28%),
+    linear-gradient(180deg, rgb(var(--ground)), rgb(var(--ground-2)));
   color: rgb(var(--ink));
-  font-family: system-ui, sans-serif;
+  font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
   text-rendering: optimizeLegibility;
+  background-attachment: fixed;
 }
 
 * {
@@ -110,4 +115,14 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+a,
+button {
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
 }
