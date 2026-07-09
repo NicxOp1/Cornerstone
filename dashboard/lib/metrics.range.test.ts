@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Call } from "@/lib/types/call";
 import {
+  bookingFunnel,
+  bookingsByAction,
+  confirmedBookings,
   costPerCallCents,
   costPerDay,
   filterByRange,
@@ -32,6 +35,7 @@ function makeCall(overrides: Partial<Call> = {}): Call {
     failedTools: [],
     summary: "",
     bookingEffectiveness: "not_applicable",
+    bookingAction: "",
     recordingBlobUrl: "",
     transcriptBlobUrl: "",
     syncedAt: "2026-07-08T10:00:00",
@@ -107,5 +111,29 @@ describe("conversation metrics", () => {
       { intent: "new_booking", count: 2 },
       { intent: "cancel", count: 1 }
     ]);
+  });
+});
+
+describe("booking metrics", () => {
+  const calls = [
+    makeCall({ isSpam: true }),
+    makeCall({ bookingEffectiveness: "confirmed", bookingAction: "schedule" }),
+    makeCall({ bookingEffectiveness: "confirmed", bookingAction: "schedule,new_customer" }),
+    makeCall({ bookingEffectiveness: "not_applicable" })
+  ];
+
+  it("builds the total -> valid -> confirmed funnel", () => {
+    expect(bookingFunnel(calls)).toEqual({ total: 4, valid: 3, confirmed: 2 });
+  });
+
+  it("counts each booking action, most frequent first", () => {
+    expect(bookingsByAction(calls)).toEqual([
+      { action: "schedule", count: 2 },
+      { action: "new_customer", count: 1 }
+    ]);
+  });
+
+  it("returns only confirmed bookings", () => {
+    expect(confirmedBookings(calls)).toHaveLength(2);
   });
 });

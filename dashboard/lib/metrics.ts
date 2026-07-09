@@ -377,6 +377,50 @@ export function intentBreakdown(calls: Call[]): Array<{ intent: string; count: n
     .sort((left, right) => right.count - left.count);
 }
 
+export function bookingFunnel(calls: Call[]): { total: number; valid: number; confirmed: number } {
+  return {
+    total: calls.length,
+    valid: calls.filter((call) => !call.isSpam).length,
+    confirmed: calls.filter((call) => call.bookingEffectiveness === "confirmed").length
+  };
+}
+
+export function bookingsPerDay(calls: Call[]): Array<{ date: string; confirmed: number }> {
+  return bucketByDay(
+    calls,
+    () => ({ confirmed: 0 }),
+    (acc, call) => {
+      if (call.bookingEffectiveness === "confirmed") {
+        acc.confirmed += 1;
+      }
+    }
+  );
+}
+
+export function bookingsByAction(calls: Call[]): Array<{ action: string; count: number }> {
+  const counts = new Map<string, number>();
+
+  for (const call of calls) {
+    if (!call.bookingAction) {
+      continue;
+    }
+
+    for (const action of call.bookingAction.split(",").map((value) => value.trim()).filter(Boolean)) {
+      counts.set(action, (counts.get(action) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .map(([action, count]) => ({ action, count }))
+    .sort((left, right) => right.count - left.count);
+}
+
+export function confirmedBookings(calls: Call[]): Call[] {
+  return calls
+    .filter((call) => call.bookingEffectiveness === "confirmed")
+    .sort((left, right) => `${right.day}${right.startTime}`.localeCompare(`${left.day}${left.startTime}`));
+}
+
 export function computeSummaryMetrics(calls: Call[]): SummaryMetrics {
   const bookingBreakdown = bookingEffectivenessBreakdown(calls);
 
