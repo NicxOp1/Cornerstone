@@ -11,3 +11,5 @@ python-dotenv==1.0.1
 pytz==2025.2
 pydantic==2.13.4
 retell-sdk==5.53.0
+gspread==6.1.2
+google-auth==2.32.0

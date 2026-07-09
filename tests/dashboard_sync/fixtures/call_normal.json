@@ -1,0 +1,39 @@
+{
+  "call_id": "call_normal_001",
+  "call_type": "phone_call",
+  "start_timestamp": 1783519200000,
+  "end_timestamp": 1783519268000,
+  "duration_ms": 68000,
+  "direction": "inbound",
+  "from_number": "+15185551234",
+  "to_number": "+18005551000",
+  "disconnection_reason": "user_hangup",
+  "transcript_object": [
+    {"role": "agent", "content": "Thank you for calling Cornerstone Services, how can I help you today?"},
+    {"role": "user", "content": "Hi I need to book a plumbing appointment for tomorrow morning please"},
+    {"role": "agent", "content": "Sure, let me check availability for you."},
+    {"role": "user", "content": "That works great thank you so much"}
+  ],
+  "transcript_with_tool_calls": [
+    {"role": "agent", "content": "Thank you for calling", "words": [{"word": "Thank", "start": 0.0, "end": 0.3}, {"word": "you", "start": 0.3, "end": 0.5}]},
+    {"role": "user", "content": "book a plumbing appointment", "words": [{"word": "book", "start": 3.0, "end": 3.3}, {"word": "plumbing", "start": 3.3, "end": 3.9}]},
+    {"role": "tool_call_invocation", "tool_call_id": "tc_1", "name": "create_job", "arguments": "{\"jobTypeId\":5879699}", "time_sec": 60.0},
+    {"role": "tool_call_result", "tool_call_id": "tc_1", "successful": true, "content": "{\"status\":\"Job booked\",\"jobId\":171326336,\"appointmentId\":171326337}", "time_sec": 61.0},
+    {"role": "agent", "content": "You're all set", "words": [{"word": "You're", "start": 64.0, "end": 64.3}, {"word": "all", "start": 64.3, "end": 64.5}, {"word": "set", "start": 64.5, "end": 66.0}]}
+  ],
+  "recording_url": "https://dxc03zgurdly9.cloudfront.net/fake/recording.wav",
+  "call_cost": {"combined_cost": 42},
+  "call_analysis": {
+    "call_successful": true,
+    "user_sentiment": "Positive",
+    "call_summary": "Customer booked a plumbing appointment for tomorrow morning.",
+    "custom_analysis_data": {
+      "intent": "new_booking",
+      "service_type": "plumbing",
+      "action_completed": true
+    }
+  },
+  "tool_calls": [
+    {"name": "create_job", "tool_call_id": "tc_1", "success": true}
+  ]
+}

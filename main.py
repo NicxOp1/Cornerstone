@@ -12,6 +12,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import utils as utils
 import config
+from dashboard_sync.webhook import router as dashboard_sync_router
 import normalize
 import logging
 from dotenv import load_dotenv
@@ -176,6 +177,7 @@ async def _run_idempotent(request: Request, operation: str, args_obj, action):
         return response
 
 app = FastAPI()
+app.include_router(dashboard_sync_router)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
