@@ -107,5 +107,35 @@ class DownstreamFailureTests(unittest.TestCase):
         self.assertEqual(resp.json(), {"status": "error", "call_id": "call_3"})
 
 
+class ReconcileEndpointTests(unittest.TestCase):
+    @patch("dashboard_sync.webhook.config")
+    def test_missing_token_returns_401(self, mock_config):
+        mock_config.DASHBOARD_SYNC_TOKEN = "secret-token"
+        client = TestClient(_build_test_app())
+
+        resp = client.post("/webhooks/reconcile")
+
+        self.assertEqual(resp.status_code, 401)
+
+    @patch("dashboard_sync.webhook.reconcile.run", new_callable=AsyncMock)
+    @patch("dashboard_sync.webhook._get_sheets_client")
+    @patch("dashboard_sync.webhook.config")
+    def test_valid_token_runs_reconcile_and_returns_summary(
+        self, mock_config, mock_get_sheets, mock_run
+    ):
+        mock_config.DASHBOARD_SYNC_TOKEN = "secret-token"
+        mock_run.return_value = {"scanned": 5, "pending": 2, "synced": 2, "errors": 0}
+        client = TestClient(_build_test_app())
+
+        resp = client.post("/webhooks/reconcile?token=secret-token")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            {"status": "ok", "scanned": 5, "pending": 2, "synced": 2, "errors": 0},
+        )
+        mock_run.assert_awaited_once()
+
+
 if __name__ == "__main__":
     unittest.main()

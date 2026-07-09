@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { MessageSender } from "@/lib/types/message";
+import { cn } from "@/lib/utils/cn";
 
 interface MessageComposerProps {
   defaultSender: MessageSender;
@@ -13,6 +14,7 @@ export function MessageComposer({ defaultSender }: MessageComposerProps) {
   const [text, setText] = useState("");
   const [sender, setSender] = useState<MessageSender>(defaultSender);
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -22,46 +24,60 @@ export function MessageComposer({ defaultSender }: MessageComposerProps) {
     }
 
     setSending(true);
+    setError(false);
 
-    await fetch("/api/messages", {
+    const response = await fetch("/api/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text, sender })
     });
 
-    setText("");
     setSending(false);
+
+    if (!response.ok) {
+      setError(true);
+      return;
+    }
+
+    setText("");
     router.refresh();
   }
+
+  const asTeam = sender === "equipo";
 
   return (
     <form
       onSubmit={handleSubmit}
-      className="sticky bottom-0 flex items-end gap-2 border-t border-gray-200 bg-white p-3 dark:border-white/10 dark:bg-gray-950"
+      className="flex items-end gap-2 border-t border-line/70 bg-card p-3"
       style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
     >
-      <select
-        value={sender}
-        onChange={(event) => setSender(event.target.value as MessageSender)}
-        className="h-11 rounded-lg border border-gray-300 px-2 text-sm"
-        aria-label="Escribir como"
+      <button
+        type="button"
+        onClick={() => setSender(asTeam ? "john" : "equipo")}
+        aria-pressed={asTeam}
+        className={cn(
+          "h-11 shrink-0 rounded-full border px-3 text-xs font-semibold transition-colors",
+          asTeam ? "border-navy bg-navy text-white" : "border-line bg-muted/50 text-ink-soft"
+        )}
       >
-        <option value="john">John</option>
-        <option value="equipo">Equipo</option>
-      </select>
+        {asTeam ? "As team" : "As John"}
+      </button>
       <textarea
         value={text}
         onChange={(event) => setText(event.target.value)}
-        placeholder="Escribir un mensaje..."
-        className="h-11 flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-base"
+        placeholder="Write a message…"
+        className="h-11 flex-1 resize-none rounded-[18px] border border-line bg-muted/40 px-4 py-2.5 text-base text-ink outline-none focus:border-navy/30"
       />
       <button
         type="submit"
         disabled={sending}
-        className="h-11 rounded-lg bg-cornerstone-navy px-4 font-semibold text-cornerstone-yellow disabled:opacity-60"
+        className="h-11 rounded-full bg-navy px-5 text-sm font-semibold text-white transition hover:bg-navy-2 disabled:opacity-60"
       >
-        Enviar
+        {sending ? "Sending…" : "Send"}
       </button>
+      {error ? (
+        <p className="absolute -top-6 right-3 text-xs text-bad">Could not send — try again.</p>
+      ) : null}
     </form>
   );
 }

@@ -5,8 +5,12 @@ import {
   averageDurationSeconds,
   bookingEffectivenessBreakdown,
   computeSummaryMetrics,
+  dailySeries,
+  hourWeekdayMatrix,
   mostRecentSyncedAt,
+  periodDelta,
   sentimentBreakdown,
+  spamRate,
   successRate
 } from "./metrics";
 
@@ -40,8 +44,17 @@ function makeCall(overrides: Partial<Call> = {}): Call {
 }
 
 describe("averageCostPerMinuteCents", () => {
-  it("promedia el costo por minuto de todas las llamadas", () => {
-    const calls = [makeCall({ costPerMinCents: 30 }), makeCall({ costPerMinCents: 50 })];
+  it("calcula el costo por minuto ponderado por duracion", () => {
+    const calls = [
+      makeCall({ durationS: 60, costCents: 30, costPerMinCents: 30 }),
+      makeCall({ durationS: 180, costCents: 45, costPerMinCents: 15 })
+    ];
+
+    expect(averageCostPerMinuteCents(calls)).toBe(18.75);
+  });
+
+  it("usa el costo por minuto por llamada como fallback si no hay duracion", () => {
+    const calls = [makeCall({ durationS: 0, costPerMinCents: 30 }), makeCall({ durationS: 0, costPerMinCents: 50 })];
     expect(averageCostPerMinuteCents(calls)).toBe(40);
   });
 
@@ -95,13 +108,70 @@ describe("bookingEffectivenessBreakdown", () => {
 });
 
 describe("sentimentBreakdown", () => {
-  it("cuenta llamadas por sentimiento", () => {
+  it("normaliza sentimientos desconocidos", () => {
     const calls = [
       makeCall({ sentiment: "Positive" }),
-      makeCall({ sentiment: "Positive" }),
-      makeCall({ sentiment: "Negative" })
+      makeCall({ sentiment: " positive " }),
+      makeCall({ sentiment: "Negative" }),
+      makeCall({ sentiment: "" })
     ];
-    expect(sentimentBreakdown(calls)).toEqual({ Positive: 2, Negative: 1 });
+
+    expect(sentimentBreakdown(calls)).toEqual({ Positive: 2, Negative: 1, Unknown: 1 });
+  });
+});
+
+describe("dailySeries", () => {
+  it("agrupa por dia con success y fail", () => {
+    const calls = [
+      makeCall({ day: "2026-07-08", callSuccessful: true }),
+      makeCall({ day: "2026-07-08", callSuccessful: false }),
+      makeCall({ day: "2026-07-09", callSuccessful: true })
+    ];
+
+    expect(dailySeries(calls)).toEqual([
+      { date: "2026-07-08", total: 2, success: 1, fail: 1 },
+      { date: "2026-07-09", total: 1, success: 1, fail: 0 }
+    ]);
+  });
+});
+
+describe("hourWeekdayMatrix", () => {
+  it("ubica las llamadas por dia de semana y hora", () => {
+    const calls = [
+      makeCall({ day: "2026-07-06", startTime: "10:15" }),
+      makeCall({ day: "2026-07-06", startTime: "10:45" }),
+      makeCall({ day: "2026-07-07", startTime: "03:00" })
+    ];
+
+    const matrix = hourWeekdayMatrix(calls);
+
+    expect(matrix[0][10]).toBe(2);
+    expect(matrix[1][3]).toBe(1);
+    expect(matrix[6][10]).toBe(0);
+  });
+});
+
+describe("spamRate", () => {
+  it("calcula el porcentaje de spam", () => {
+    const calls = [makeCall({ isSpam: true }), makeCall({ isSpam: false }), makeCall({ isSpam: true })];
+    expect(spamRate(calls)).toBeCloseTo(66.7, 1);
+  });
+});
+
+describe("periodDelta", () => {
+  it("calcula el delta porcentual contra el periodo previo", () => {
+    const current = [makeCall({ durationS: 120 }), makeCall({ durationS: 120 })];
+    const previous = [makeCall({ durationS: 60 }), makeCall({ durationS: 60 })];
+
+    expect(periodDelta(current, previous, averageDurationSeconds)).toEqual({
+      current: 120,
+      previous: 60,
+      changePercent: 100
+    });
+  });
+
+  it("devuelve null si no existe ventana previa", () => {
+    expect(periodDelta([makeCall({})], [], averageDurationSeconds).changePercent).toBeNull();
   });
 });
 

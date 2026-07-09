@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { StatusChip } from "@/components/ui/StatusChip";
 import type { FeedbackEntry } from "@/lib/types/feedback";
 
 interface FeedbackThreadProps {
@@ -29,7 +30,7 @@ export function FeedbackThread({ callId, initialFeedback }: FeedbackThreadProps)
     setSending(false);
 
     if (!response.ok) {
-      setError("No se pudo enviar el comentario. El texto sigue aca, proba de nuevo.");
+      setError("Could not send your comment. Your text is still here — try again.");
       return;
     }
 
@@ -39,20 +40,23 @@ export function FeedbackThread({ callId, initialFeedback }: FeedbackThreadProps)
 
   return (
     <div className="space-y-4">
-      <h2 className="text-sm font-semibold uppercase text-gray-500">Comentarios</h2>
+      <h2 className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">Feedback</h2>
 
       {initialFeedback.length > 0 ? (
         <ul className="space-y-3">
           {initialFeedback.map((entry) => (
-            <li key={entry.id} className="rounded-xl border border-gray-200 p-3 dark:border-white/10">
-              <p className="text-sm">{entry.comment}</p>
-              <p className="mt-1 text-xs text-gray-400">
-                {entry.status === "resuelto" ? "Resuelto" : "Pendiente"}
-              </p>
+            <li key={entry.id} className="rounded-[20px] border border-line/80 bg-card p-4">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm text-ink">{entry.comment}</p>
+                <StatusChip
+                  tone={entry.status === "resuelto" ? "good" : "warn"}
+                  label={entry.status === "resuelto" ? "Resolved" : "Open"}
+                />
+              </div>
               {entry.reply ? (
-                <div className="mt-2 rounded-lg bg-gray-50 p-2 text-sm dark:bg-white/5">
-                  <p className="text-xs font-medium text-gray-500">Respuesta del equipo</p>
-                  <p>{entry.reply}</p>
+                <div className="mt-3 rounded-[16px] bg-muted/60 p-3 text-sm text-ink">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-soft">Team reply</p>
+                  <p className="mt-1">{entry.reply}</p>
                 </div>
               ) : null}
             </li>
@@ -60,21 +64,21 @@ export function FeedbackThread({ callId, initialFeedback }: FeedbackThreadProps)
         </ul>
       ) : null}
 
-      <form onSubmit={handleSubmit} className="space-y-2">
+      <form onSubmit={handleSubmit} className="space-y-3">
         <textarea
           value={comment}
           onChange={(event) => setComment(event.target.value)}
-          placeholder="Dejar un comentario sobre esta llamada"
-          className="min-h-24 w-full rounded-lg border border-gray-300 p-3 text-base"
+          placeholder="Leave a comment on this call"
+          className="min-h-24 w-full rounded-[20px] border border-line bg-card p-4 text-base text-ink outline-none focus:border-navy/30"
           required
         />
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="text-sm text-bad">{error}</p> : null}
         <button
           type="submit"
           disabled={sending}
-          className="h-11 rounded-lg bg-cornerstone-navy px-4 font-semibold text-cornerstone-yellow disabled:opacity-60"
+          className="h-11 rounded-full bg-navy px-5 text-sm font-semibold text-white transition hover:bg-navy-2 disabled:opacity-60"
         >
-          {sending ? "Enviando..." : "Enviar comentario"}
+          {sending ? "Sending…" : "Send comment"}
         </button>
       </form>
     </div>

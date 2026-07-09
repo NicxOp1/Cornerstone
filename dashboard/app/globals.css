@@ -2,6 +2,112 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  color-scheme: light;
+  --ground: 244 245 251;
+  --card: 255 255 255;
+  --ink: 22 27 45;
+  --ink-soft: 95 104 129;
+  --muted: 236 240 248;
+  --line: 216 223 238;
+  --navy: 30 27 75;
+  --navy-2: 50 44 117;
+  --accent: 245 224 0;
+  --accent-ink: 29 29 43;
+  --good: 31 157 92;
+  --good-soft: 228 247 236;
+  --bad: 200 75 69;
+  --bad-soft: 253 236 233;
+  --heat: 89 95 179;
+  --shadow: 17 24 39;
+  --pos: 31 157 92;
+  --neu: 74 85 204;
+  --neg: 200 75 69;
+  --unk: 179 187 204;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --ground: 10 14 27;
+    --card: 16 23 42;
+    --ink: 238 242 255;
+    --ink-soft: 160 172 198;
+    --muted: 25 34 59;
+    --line: 40 53 86;
+    --navy: 35 42 78;
+    --navy-2: 54 64 108;
+    --accent: 245 224 0;
+    --accent-ink: 28 30 40;
+    --good: 49 196 122;
+    --good-soft: 18 61 40;
+    --bad: 239 103 95;
+    --bad-soft: 68 27 31;
+    --heat: 122 132 230;
+    --shadow: 2 6 23;
+    --pos: 49 196 122;
+    --neu: 132 144 255;
+    --neg: 239 103 95;
+    --unk: 107 121 152;
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: 10 14 27;
+  --card: 16 23 42;
+  --ink: 238 242 255;
+  --ink-soft: 160 172 198;
+  --muted: 25 34 59;
+  --line: 40 53 86;
+  --navy: 35 42 78;
+  --navy-2: 54 64 108;
+  --accent: 245 224 0;
+  --accent-ink: 28 30 40;
+  --good: 49 196 122;
+  --good-soft: 18 61 40;
+  --bad: 239 103 95;
+  --bad-soft: 68 27 31;
+  --heat: 122 132 230;
+  --shadow: 2 6 23;
+  --pos: 49 196 122;
+  --neu: 132 144 255;
+  --neg: 239 103 95;
+  --unk: 107 121 152;
+}
+
+html {
+  min-height: 100%;
+  background: rgb(var(--ground));
+}
+
 body {
-  @apply bg-gray-50 text-cornerstone-navy dark:bg-gray-950 dark:text-white;
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at top left, rgb(var(--accent) / 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgb(var(--navy) / 0.08), transparent 24%),
+    linear-gradient(180deg, rgb(var(--ground)), rgb(var(--ground)));
+  color: rgb(var(--ink));
+  font-family: system-ui, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  border-color: rgb(var(--line));
+}
+
+::selection {
+  background: rgb(var(--accent) / 0.55);
+  color: rgb(var(--accent-ink));
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
