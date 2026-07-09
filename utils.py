@@ -1,5 +1,4 @@
-from datetime import datetime
-from typing import List, Optional, Any, Dict, Generic, TypeVar
+from typing import List, Optional, Any, Generic, TypeVar
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -29,6 +28,7 @@ class Address(BaseModel):
     zip: Optional[str] = Field(..., description="Zip code of the customer")
     country: Optional[str] = Field(..., description="Country name")
     state: Optional[str] = Field(..., description="State name")
+    jobTypeId: Optional[int] = Field(None, description="Job type ID to validate service availability in this area")
 
     model_config = ConfigDict(extra='allow')
 
@@ -184,7 +184,7 @@ class JobCreateToolRequestOutbound(ToolRequestWrapper[JobCreateRequestOutbound])
 # =============================================================================
 
 class StoreCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
     field: str = Field(..., description="Field name to store (e.g. customerName, address, serviceType)")
     value: str = Field(..., description="Value for the field")
 
@@ -192,13 +192,13 @@ class StoreCallDataToolRequest(ToolRequestWrapper[StoreCallDataRequest]):
     pass
 
 class GetCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
 
 class GetCallDataToolRequest(ToolRequestWrapper[GetCallDataRequest]):
     pass
 
 class UpdateCallFieldRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
     field: str = Field(..., description="Field name to update")
     value: str = Field(..., description="New value for the field")
 
@@ -206,9 +206,22 @@ class UpdateCallFieldToolRequest(ToolRequestWrapper[UpdateCallFieldRequest]):
     pass
 
 class ClearCallDataRequest(BaseModel):
-    callId: str = Field(..., description="Unique call ID from Retell")
+    callId: Optional[str] = Field(None, description="Unique call ID from Retell (resolved server-side from Retell's call object if omitted)")
 
 class ClearCallDataToolRequest(ToolRequestWrapper[ClearCallDataRequest]):
+    pass
+
+
+# =============================================================================
+# ZIP SUGGESTION
+# =============================================================================
+
+class SuggestZipRequest(BaseModel):
+    city: str = Field(..., description="City of the service address")
+    state: str = Field(..., description="Two-letter state abbreviation (MA or NH)")
+    street: Optional[str] = Field(None, description="Street address, optional context")
+
+class SuggestZipToolRequest(ToolRequestWrapper[SuggestZipRequest]):
     pass
 
 
@@ -228,9 +241,17 @@ class DirectLineToolRequest(ToolRequestWrapper[DirectLineRequest]):
 # =============================================================================
 
 class OfficeMessageRequest(BaseModel):
-    question: str = Field(..., description="The question or message Harmony could not answer")
+    # "Unanswered question" use case
+    question: Optional[str] = Field(None, description="The question or message Harmony could not answer")
     callerName: Optional[str] = Field(None, description="Name of the caller if known")
     callerPhone: Optional[str] = Field(None, description="Phone number of the caller if known")
+    # "Missed transfer / callback" notification use case
+    name: Optional[str] = Field(None, description="Caller's name")
+    number: Optional[str] = Field(None, description="Caller's phone number")
+    reason: Optional[str] = Field(None, description="Reason for the call or transfer")
+    callback: Optional[str] = Field(None, description="Preferred callback time")
+    email: Optional[str] = Field(None, description="Caller's email if known")
+    isEmergency: Optional[bool] = Field(None, description="Whether the call is an emergency")
 
 class OfficeMessageToolRequest(ToolRequestWrapper[OfficeMessageRequest]):
     pass

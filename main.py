@@ -1,15 +1,19 @@
-from datetime import datetime, date, timedelta, time, timezone
-from typing import Tuple, Dict
-from fastapi import FastAPI, Request, Response, HTTPException
+from datetime import datetime, timedelta, timezone
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 import httpx
 import asyncio
+import hashlib
 import smtplib
 import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import utils as utils
+import config
+from dashboard_sync.webhook import router as dashboard_sync_router
+import normalize
 import logging
 from dotenv import load_dotenv
 import os
@@ -17,10 +21,19 @@ import json
 import pytz
 import math
 import re
+import sys
 import requests
+from urllib.parse import quote
+from html import escape
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+except Exception:
+    pass
 
 # Load environment variables
 load_dotenv()
@@ -35,18 +48,44 @@ EASTERN_TIME = pytz.timezone("America/New_York")
 MAPS_AUTH = os.getenv("MAPS_AUTH")
 GMAIL_USER = os.getenv("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
-OFFICE_EMAIL = "info@cornerstoneservicesne.com"
+OFFICE_EMAIL = config.OFFICE_EMAIL
 
-DIRECT_LINES = {
-    "john": "6033274334",
-    "josh": "6033275618",
-}
+DIRECT_LINES = config.DIRECT_LINES
+
+# =============================================================================
+# JOB-TYPES CACHE (evita un round-trip a ST en cada checkAvailability)
+# =============================================================================
+
+_job_types_cache: dict = {"data": None, "ts": 0.0}
+_JOB_TYPES_TTL = config.JOB_TYPES_TTL
+
+
+async def _get_job_types(headers: dict) -> dict:
+    """Devuelve {jobTypeId: [businessUnitId, ...]}. Cachea 30 min."""
+    now = time.time()
+    if _job_types_cache["data"] and now - _job_types_cache["ts"] < _JOB_TYPES_TTL:
+        print("[jobTypes] Cache hit ✅")
+        return _job_types_cache["data"]
+
+    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(url, headers=headers)
+
+    if resp.status_code != 200:
+        print(f"[jobTypes] ❌ Error {resp.status_code}: {resp.text[:200]}")
+        return {}
+
+    mapping = {jt["id"]: jt["businessUnitIds"] for jt in resp.json().get("data", [])}
+    _job_types_cache["data"] = mapping
+    _job_types_cache["ts"] = now
+    print(f"[jobTypes] Fetched and cached {len(mapping)} job types ✅")
+    return mapping
 
 # =============================================================================
 # CALL SESSION STORE (in-memory, TTL 2 hours)
 # =============================================================================
 
-CALL_SESSION_TTL = 7200  # 2 hours in seconds
+CALL_SESSION_TTL = config.CALL_SESSION_TTL
 
 # { callId: { "_ts": timestamp, "field": "value", ... } }
 call_sessions: dict = {}
@@ -55,6 +94,7 @@ call_sessions: dict = {}
 FIELD_LABELS = {
     "customerName":   "Name",
     "customerPhone":  "Phone number",
+    "email":          "Email",
     "street":         "Street address",
     "city":           "City",
     "state":          "State",
@@ -78,64 +118,162 @@ def _cleanup_sessions():
     for k in expired:
         del call_sessions[k]
 
+# =============================================================================
+# IDEMPOTENCY (evita duplicar side effects si Retell reintenta un tool call)
+# =============================================================================
+
+idempotency_cache: dict = {}
+idempotency_locks: dict = {}
+
+
+def _cleanup_idempotency_cache():
+    now = time.time()
+    expired = [k for k, v in idempotency_cache.items()
+               if now - v.get("_ts", 0) > config.IDEMPOTENCY_TTL]
+    for k in expired:
+        del idempotency_cache[k]
+        idempotency_locks.pop(k, None)
+
+
+def _model_to_dict(model):
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_none=True)
+    if hasattr(model, "dict"):
+        return model.dict(exclude_none=True)
+    return dict(model)
+
+
+async def _build_idempotency_key(request: Request, operation: str, args_obj) -> "str | None":
+    call_id = await _resolve_call_id(request, args_obj)
+    if not call_id:
+        return None
+    payload_json = json.dumps(_model_to_dict(args_obj), sort_keys=True, separators=(",", ":"))
+    payload_hash = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+    return f"{operation}:{call_id}:{payload_hash}"
+
+
+def _should_cache_response(response) -> bool:
+    return isinstance(response, dict) and "error" not in response
+
+
+async def _run_idempotent(request: Request, operation: str, args_obj, action):
+    """Envuelve un endpoint de side-effect: si el mismo call_id + mismos args ya
+    corrieron dentro del TTL, devuelve la respuesta cacheada en vez de repetir
+    la accion real (booking duplicado, mail duplicado, etc.)."""
+    _cleanup_idempotency_cache()
+    key = await _build_idempotency_key(request, operation, args_obj)
+    if not key:
+        return await action()
+
+    lock = idempotency_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        cached = idempotency_cache.get(key)
+        if cached and time.time() - cached.get("_ts", 0) <= config.IDEMPOTENCY_TTL:
+            logger.info(f"[idempotency] Reusing cached response for {operation}")
+            return cached["response"]
+        response = await action()
+        if _should_cache_response(response):
+            idempotency_cache[key] = {"_ts": time.time(), "response": response}
+        return response
+
 app = FastAPI()
+app.include_router(dashboard_sync_router)
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     errors = exc.errors()
     missing = [e["loc"][-1] for e in errors]
-    logger.error(f"[ValidationError] Missing/invalid fields: {missing} — body: {await request.body()}")
+    # No leer request.body() aca: en produccion el ASGI receive() ya se consumio
+    # al parsear el body original y volver a awaitearlo cuelga la response (visto
+    # en vivo: timeout de 120s en vez de un 400 instantaneo).
+    logger.error(f"[ValidationError] Missing/invalid fields: {missing}")
     return JSONResponse(
         status_code=400,
         content={"error": f"Missing or invalid required fields: {missing}"}
     )
 
-CITIES = {
-    "agawam", "amesbury", "attleboro", "barnstable", "beverly", "boston", "braintree", "brockton", "cambridge", "chelsea",
-    "chicopee", "easthampton", "everett", "fall river", "fitchburg", "framingham", "franklin", "gardner", "gloucester", "greenfield",
-    "haverhill", "holyoke", "lawrence", "leominster", "lowell", "lynn", "malden", "marlborough", "medford", "melrose",
-    "methuen", "new bedford", "newburyport", "newton", "north adams", "northampton", "palmer", "peabody", "pittsfield", "quincy",
-    "randolph", "revere", "salem", "somerville", "southbridge", "springfield", "taunton", "waltham", "watertown", "west springfield",
-    "westfield", "weymouth", "winthrop", "woburn", "worcester", "bridgewater", "amherst", "berlin", "claremont", "concord",
-    "dover", "franklin", "keene", "laconia", "lebanon", "manchester", "nashua", "portsmouth", "rochester", "somersworth",
-    "acton", "arlington", "atkinson", "derry", "hudson", "windham", "hampton"
-}
+# Los endpoints de tools parsean data.args manualmente con .parse_obj() en vez de
+# dejar que FastAPI lo valide como parametro de ruta (ver cancelAppointment, etc).
+# Sin este handler, un ValidationError ahi adentro es una excepcion sin capturar
+# -> 500 crudo en vez de un error legible para Harmony (ej: reasonId invento por
+# el LLM en vez de un ID numerico de la tabla).
+@app.exception_handler(ValidationError)
+async def pydantic_validation_exception_handler(request: Request, exc: ValidationError):
+    errors = exc.errors()
+    invalid = [e["loc"][-1] for e in errors]
+    logger.error(f"[ValidationError] Invalid tool arguments: {invalid}")
+    return JSONResponse(
+        status_code=400,
+        content={"error": f"Invalid or missing arguments: {invalid}"}
+    )
 
-VALID_STATES = {
-    "ma", "nh", "new hampshire", "massachusetts"
-}
+CITIES = config.CITIES
+
+VALID_STATES = config.VALID_STATES
 
 # Auxiliary functions
 
 
+# Token OAuth de ServiceTitan cacheado en memoria con su expiración.
+# Evita pedir un token nuevo en CADA request (latencia extra + riesgo de
+# rate-limit en el endpoint de auth). El lock previene race conditions cuando
+# varias llamadas concurrentes lo refrescan a la vez.
+_token_cache: dict = {"token": None, "exp": 0.0}
+_token_lock = asyncio.Lock()
+
+
 async def get_access_token():
-    try:
-        print("Fetching access token...")
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(
-                AUTH_URL,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={"grant_type": "client_credentials",
-                      "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
-            )
-        if response.status_code == 200:
-            token_data = response.json()
-            print("Access token fetched successfully. ✅")
-            return token_data.get("access_token")
-        else:
-            print(f"Error fetching token: {response.text}")
-            raise HTTPException(status_code=response.status_code,
-                                detail=f"Authentication failed: {response.text}")
-    except httpx.RequestError as e:
-        print(f"Exception while fetching token: {str(e)}")
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get access token: {str(e)}")
+    async with _token_lock:
+        # Reusar token vigente (margen de 60s antes de expirar)
+        if _token_cache["token"] and time.time() < _token_cache["exp"] - config.TOKEN_REFRESH_MARGIN:
+            return _token_cache["token"]
+        try:
+            print("Fetching access token...")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    AUTH_URL,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={"grant_type": "client_credentials",
+                          "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+                )
+            if response.status_code == 200:
+                token_data = response.json()
+                _token_cache["token"] = token_data.get("access_token")
+                _token_cache["exp"] = time.time() + token_data.get("expires_in", 900)
+                print("Access token fetched successfully. ✅")
+                return _token_cache["token"]
+            else:
+                # No loguear response.text del endpoint de auth (puede traer detalles sensibles)
+                print(f"Error fetching token: status {response.status_code}")
+                raise HTTPException(status_code=response.status_code,
+                                    detail="Authentication with ServiceTitan failed.")
+        except httpx.RequestError as e:
+            print(f"Exception while fetching token: {str(e)}")
+            raise HTTPException(
+                status_code=503, detail="Could not reach ServiceTitan authentication service.")
+
+
+def _parse_agent_datetime(dt_str: str) -> datetime:
+    """Parse agent-provided Eastern wall-clock timestamps with loose ISO input."""
+    s = dt_str.strip()
+    if s.endswith("Z"):
+        s = s[:-1]
+    m = re.search(r"[+-]\d{2}:\d{2}$", s)
+    if m:
+        s = s[:m.start()]
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized datetime format: {dt_str!r}")
 
 
 def massachusetts_to_utc(dt_str: str) -> str:
-    dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%SZ")
-    eastern_tz = pytz.timezone("America/New_York")
-    dt_eastern = eastern_tz.localize(dt)
+    """Convierte dígitos Eastern wall-clock a UTC real para ServiceTitan.
+    Tolera formatos con/sin segundos y con/sin sufijo Z u offset."""
+    dt = _parse_agent_datetime(dt_str)
+    dt_eastern = EASTERN_TIME.localize(dt)
     dt_utc = dt_eastern.astimezone(pytz.utc)
     return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -203,11 +341,24 @@ async def create_customer(customer: utils.CustomerCreateRequest):
             print("Error: Customer name and number are required.")
             return {"error": "Customer name and number are required."}
 
+        # Re-normalizar por si el agente mandó valores dictados por voz.
+        customer.number = normalize.normalize_phone(customer.number)
+        if customer.email:
+            customer.email = normalize.normalize_email(customer.email)
+
         if customer.locations and isinstance(customer.locations, list) and len(customer.locations) > 0:
             location = customer.locations[0]
         else:
             print("Error: Customer location is missing.")
             return {"error": "Customer location is missing."}
+
+        if not normalize.has_full_name(customer.name):
+            print("Error: Customer name missing last name.")
+            return {"error": "missing_last_name", "message": "The customer only gave a first name. Ask for their last name, then call create_customer again with the full first and last name."}
+
+        if not normalize.has_full_name(location.name):
+            print("Error: Location name missing last name.")
+            return {"error": "missing_last_name", "message": "The location name only has a first name. Ask the caller for their last name, then call create_customer again with the full name on the location too."}
 
         if hasattr(location, 'address') and location.address:
             location.address.country = location.address.country or "USA"
@@ -299,27 +450,24 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
 
 async def check_availability_time(time, business_units, job_type, access_token=None):
-    print("Checking availability time...")
+    """
+    Devuelve:
+      - list[dict]  si encontró slots disponibles
+      - []          si la API respondió OK pero no hay turnos (capacidad real vacía)
+      - None        si la API de ST no pudo responder (error de red, auth, 5xx, etc.)
+    """
+    print(f"[check_availability_time] jobType={job_type} BUs={business_units} desde={time}")
 
     if isinstance(business_units, int):
         business_units = [business_units]
     elif isinstance(business_units, list):
         business_units = [int(bu) for bu in business_units]
 
-    # Parsear tiempo inicial
-    if "Z" in time:
-        time = time.replace("Z", "+00:00")
-
-    time_parts = time.split('T')
-    date_parts = time_parts[0].split('-')
-    date_parts[2] = date_parts[2].zfill(2)
-    corrected_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]}T{time_parts[1]}"
-
     try:
-        start_time = datetime.fromisoformat(corrected_time)
-    except ValueError:
-        print(f"Invalid time format: {corrected_time}")
-        return []
+        start_time = _parse_agent_datetime(time)
+    except ValueError as exc:
+        print(f"[check_availability_time] ❌ Formato de tiempo inválido: {time}")
+        raise ValueError("Invalid date/time format. Expected ISO 8601 like YYYY-MM-DDTHH:MM[:SS].") from exc
 
     if not access_token:
         access_token = await get_access_token()
@@ -329,29 +477,30 @@ async def check_availability_time(time, business_units, job_type, access_token=N
         "Content-Type": "application/json",
     }
 
-    # Intentos (máx 5), sumando 7 días cada vez
-    for attempt in range(5):
-        print(f"Attempt {attempt + 1}/5...")
+    got_valid_response = False  # True si al menos un intento recibió HTTP 200
 
+    for attempt in range(5):
         current_start = start_time + timedelta(days=attempt * 7)
         current_end = current_start + timedelta(days=13)
-        current_end = current_end.replace(
-            hour=23, minute=59, second=0, microsecond=0)
+        current_end = current_end.replace(hour=23, minute=59, second=0, microsecond=0)
 
-        starts_on_or_after = current_start.replace(
-            tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        starts_on_or_after = current_start.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         ends_on_or_before = current_end.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        print(f"[check_availability_time] Intento {attempt + 1}/5 → {starts_on_or_after} a {ends_on_or_before}")
 
         payload = {
             "startsOnOrAfter": starts_on_or_after,
             "endsOnOrBefore": ends_on_or_before,
             "businessUnitIds": business_units,
             "jobTypeId": job_type,
-            "skillBasedAvailability": True
+            "skillBasedAvailability": False
         }
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            # timeout corto: hasta 5 intentos secuenciales. Con 15s c/u podían
+            # sumar 75s y colgar la llamada de voz. 8s mantiene el total acotado.
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 response = await client.post(
                     f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
                     headers=headers,
@@ -359,25 +508,87 @@ async def check_availability_time(time, business_units, job_type, access_token=N
                 )
 
             if response.status_code == 200:
-                data = response.json()
+                got_valid_response = True
                 slots = [
                     {"start": slot["start"], "end": slot["end"]}
-                    for slot in data.get("availabilities", []) if slot.get("isAvailable")
+                    for slot in response.json().get("availabilities", []) if slot.get("isAvailable")
                 ]
-
                 if slots:
-                    print("Checking availability time completed ✅")
+                    print(f"[check_availability_time] ✅ {len(slots)} slot(s). Primero: {slots[0]['start']}")
                     return slots
                 else:
-                    print(f"No slots on attempt {attempt + 1}, retrying...")
+                    print(f"[check_availability_time] 200 OK pero sin slots en intento {attempt + 1}, reintentando...")
             else:
-                print(f"❌ Error in API response: {response.status_code} {response.text}")
+                print(f"[check_availability_time] ❌ ST respondió {response.status_code}: {response.text[:300]}")
 
         except httpx.RequestError as e:
-            print(f"❌ Exception occurred: {str(e)}")
+            print(f"[check_availability_time] ❌ Error de red: {str(e)}")
 
-    print(f"No available slots found after 5 attempts.")
+    if not got_valid_response:
+        print("[check_availability_time] ❌ ST no respondió con 200 en ningún intento (API no disponible).")
+        return None  # distinto de [] — señal de falla de API, no de falta de capacidad
+
+    print("[check_availability_time] Sin slots disponibles tras 5 intentos (API OK, capacidad vacía).")
     return []
+
+
+async def _resolve_business_unit(headers, job_type_id, start_raw, end_raw, requested_bu):
+    """Re-verifica contra ServiceTitan cual business unit tiene realmente el
+    hueco para este horario exacto, en vez de confiar en la que arrastro el
+    agente desde check_availability (que mezcla los slots de todas las BUs
+    de un jobType en una sola lista sin indicar de cual era cada una)."""
+    job_types = await _get_job_types(headers)
+    business_units = job_types.get(job_type_id) or []
+    if len(business_units) <= 1:
+        return requested_bu  # una sola BU posible, nada que resolver
+
+    try:
+        start_dt = _parse_agent_datetime(start_raw)
+        end_dt = _parse_agent_datetime(end_raw)
+    except ValueError:
+        return requested_bu
+
+    starts_on_or_after = start_dt.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    ends_on_or_before = end_dt.replace(tzinfo=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    payload = {
+        "startsOnOrAfter": starts_on_or_after,
+        "endsOnOrBefore": ends_on_or_before,
+        "businessUnitIds": [int(bu) for bu in business_units],
+        "jobTypeId": job_type_id,
+        "skillBasedAvailability": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/capacity",
+                headers=headers, json=payload)
+    except httpx.RequestError as e:
+        print(f"[resolveBusinessUnit] ❌ Error de red: {e}")
+        return requested_bu
+
+    if resp.status_code != 200:
+        print(f"[resolveBusinessUnit] ❌ ST respondio {resp.status_code}, se mantiene BU {requested_bu}")
+        return requested_bu
+
+    matches = [
+        slot for slot in resp.json().get("availabilities", [])
+        if slot.get("isAvailable")
+        and slot.get("start") == starts_on_or_after
+        and slot.get("end") == ends_on_or_before
+    ]
+    if not matches:
+        print(f"[resolveBusinessUnit] Sin match exacto de horario, se mantiene BU {requested_bu}")
+        return requested_bu
+
+    available_bu_ids = {bu for slot in matches for bu in slot.get("businessUnitIds", [])}
+    if requested_bu in available_bu_ids:
+        return requested_bu
+
+    corrected = matches[0]["businessUnitIds"][0]
+    print(f"[resolveBusinessUnit] ⚠️ BU corregida: agente mandó {requested_bu}, "
+          f"la que realmente tiene el hueco es {corrected} (jobType {job_type_id})")
+    return corrected
 
 
 async def get_technicians_by_businessUnitId(businessUnitId):
@@ -445,62 +656,116 @@ async def check_work_area(data: utils.AddressCheckToolRequest):
 
     data = args_obj
 
-    PO_BOX_SALEM = (42.775, -71.217)
-    R = 3958.8
+    required_text_fields = {
+        "street": data.street,
+        "city": data.city,
+        "state": data.state,
+        "zip": data.zip,
+    }
+    missing_fields = [
+        field_name
+        for field_name, value in required_text_fields.items()
+        if not isinstance(value, str) or not value.strip()
+    ]
+    if missing_fields:
+        return {"error": f"Missing required address fields: {missing_fields}"}
+
+    PO_BOX_SALEM = config.SALEM_PO_BOX
+    R = config.EARTH_RADIUS_MILES
 
     city = data.city.strip().lower()
     state = data.state.strip().lower()
+
+    # Restricción de licencia: plomería solo disponible en NH, no en MA.
+    if state in config.MA_STATES and getattr(data, "jobTypeId", None) in config.PLUMBING_JOB_TYPE_IDS:
+        print(f"[checkWorkArea] ❌ Plomería no disponible en MA (jobTypeId={data.jobTypeId})")
+        return {"error": "Plumbing service is not available in Massachusetts. We can assist you with plumbing in New Hampshire."}
 
     # Validación rápida: estado permitido y ciudad en lista única
     if state in VALID_STATES and city in CITIES:
         print("Coordinates Checked In List ✅")
         return {"message": "City is in the working area (matched from predefined list)."}
 
-    # Fallback: geocodificación + cálculo de distancia
-    address = f"{data.street}, {data.city}, {data.country}"
-    if not address:
-        print("error: The direction is not valid.")
-        return {"error": "The direction is not valid."}
+    # Fallback: geocodificación + cálculo de distancia (50 mi desde Salem MA)
+    # Política: si geocode falla pero el estado es MA o NH, se permite el booking
+    # (el dispatcher verifica en persona). Solo bloqueamos si la dirección queda
+    # fuera de los 50 mi y lo podemos confirmar con coordenadas reales.
+    # SSRF/inyección: la dirección (input de usuario) NO debe interpolarse cruda
+    # en el path. Se URL-encodea y el auth va por params; sin seguir redirects
+    # para que nunca se filtre MAPS_AUTH a otro host.
+    address = quote(f"{data.street}, {data.city}, {data.state}", safe="")
+    url_geocode = f"https://geocode.xyz/{address}"
 
-    url_geocode = f"https://geocode.xyz/{address}?json=1&auth={MAPS_AUTH}"
-    resp = await asyncio.to_thread(requests.get, url_geocode)
+    _GEOCODE_FAIL_OPEN = {
+        "message": "Address is in the working area.",
+        "geocode_validation": "pending",
+        "validation_note": "Geocode verification was unavailable. Please confirm the service address is within the coverage area before dispatching and add a note to the job summary."
+    }
+
+    try:
+        resp = await asyncio.to_thread(
+            lambda: requests.get(
+                url_geocode,
+                params={"json": "1", "auth": MAPS_AUTH},
+                timeout=8,
+                allow_redirects=False,
+            )
+        )
+    except Exception as e:
+        print(f"[checkWorkArea] Geocode no disponible: {e}")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
+        return {"error": "Could not validate the address location. Please try again."}
+
     if resp.status_code != 200:
-        print("error: no response from geocode api")
+        print(f"[checkWorkArea] Geocode respondió {resp.status_code}")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
         return {"error": "Failed to fetch geolocation data."}
 
-    json_data = resp.json()
-    if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
-        print("error: Address no found in geocode api")
-        return {"error": "The address received does not exist."}
+    try:
+        json_data = resp.json()
+    except ValueError:
+        print("[checkWorkArea] Geocode devolvió un body no-JSON.")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
+        return {"error": "Could not validate the address location. Please try again."}
 
-    expected_zip = json_data.get("standard", {}).get("postal")
-    client_zip = data.zip
-    expected_zip_clean = expected_zip.split('-')[0] if expected_zip else None
-    if expected_zip_clean and expected_zip_clean != client_zip:
-        print(
-            "error: The provided zip code does not match the address. The zip code should be: {expected_zip_clean}")
-        return {"error": f"The provided zip code does not match the address. The zip code should be: {expected_zip_clean}"}
+    if json_data.get("error") or json_data.get("longt") == "0.00000" or json_data.get("latt") == "0.00000":
+        print(f"[checkWorkArea] Geocode no encontró la dirección: {address}")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
+        return {"error": "The address could not be located. Please verify the address and try again."}
+
+    # ZIP mismatch: solo loggear, NO bloquear. La autoridad es la distancia.
+    expected_zip = (json_data.get("standard", {}) or {}).get("postal")
+    if expected_zip:
+        expected_zip_clean = expected_zip.split('-')[0]
+        if expected_zip_clean != data.zip:
+            print(f"[checkWorkArea] ZIP mismatch: geocode={expected_zip_clean}, cliente={data.zip} — continuando con check de distancia.")
 
     try:
         lat = float(json_data.get("latt"))
         lon = float(json_data.get("longt"))
     except (TypeError, ValueError):
-        print("error: The provided coordinates are not valid.")
+        print("[checkWorkArea] No se pudieron parsear las coordenadas de geocode.")
+        if state in VALID_STATES:
+            return _GEOCODE_FAIL_OPEN
         return {"error": "The provided coordinates are not valid."}
 
     lat1, lon1 = math.radians(PO_BOX_SALEM[0]), math.radians(PO_BOX_SALEM[1])
     lat2, lon2 = math.radians(lat), math.radians(lon)
     delta_lat = lat2 - lat1
     delta_lon = lon2 - lon1
-    a = math.sin(delta_lat/2)**2 + math.cos(lat1) * \
-        math.cos(lat2)*math.sin(delta_lon/2)**2
+    a = math.sin(delta_lat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     distance = round(R * c, 2)
 
-    if distance > 50:
-        print("error: There are no services available in the area.")
+    if distance > config.SERVICE_RADIUS_MILES:
+        print(f"[checkWorkArea] Fuera del área: {distance} mi desde Salem MA.")
         return {"error": "There are no services available in the area."}
-    print("checkWorkArea request completed ✅")
+
+    print(f"[checkWorkArea] ✅ En área: {distance} mi desde Salem MA.")
     return {"message": "Address is in the working area."}
 
 
@@ -514,6 +779,9 @@ async def find_customer(data: utils.FindCustomerToolRequest):
         args_obj = data.args
 
     phone = args_obj.number
+    if not isinstance(phone, str) or not phone.strip():
+        return {"error": "A phone number is required to search for a customer."}
+    phone = normalize.normalize_phone(phone)
 
     try:
         url_customers = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers?phone={phone}"
@@ -601,7 +869,7 @@ async def get_customer_locations(data: utils.FindAppointmentToolRequest):
 
 
 @app.post("/createLocation")
-async def create_location(data: utils.CreateLocationToolRequest):
+async def create_location(data: utils.CreateLocationToolRequest, request: Request):
     print("Processing createLocation request... 🔄")
 
     if isinstance(data.args, dict):
@@ -611,40 +879,50 @@ async def create_location(data: utils.CreateLocationToolRequest):
 
     data = args_obj
 
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json"
-    }
+    async def action():
+        if not normalize.has_full_name(data.location.name):
+            print("Error: Location name missing last name.")
+            return {"error": "missing_last_name", "message": "This location's name only has a first name. Ask the caller for their last name, then call create_location again with the full name."}
 
-    payload = {
-        "customerId": data.customerId,
-        "name": data.location.name,
-        "address": data.location.address.dict()
-    }
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json"
+        }
 
-    url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        response = await client.post(url, headers=headers, json=payload)
+        if data.location.address.zip:
+            data.location.address.zip = normalize.normalize_zip(data.location.address.zip)
 
-    if response.status_code != 200:
-        print(f"Error creating location: {response.text}")
-        return {"error": response.text}
+        payload = {
+            "customerId": data.customerId,
+            "name": data.location.name,
+            "address": data.location.address.model_dump(exclude={"jobTypeId"}, exclude_none=True)
+        }
 
-    print("createLocation request completed ✅")
-    # Suponiendo que response es lo que devuelve el POST al crear la location:
-    response_data = response.json()
-    location_id = response_data.get("id")
+        url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/locations"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(url, headers=headers, json=payload)
 
-    return {
-        "message": "Location created successfully.",
-        "locationId": location_id
-    }
+        if response.status_code != 200:
+            print(f"Error creating location: {response.text}")
+            return {"error": response.text}
+
+        print("createLocation request completed ✅")
+        # Suponiendo que response es lo que devuelve el POST al crear la location:
+        response_data = response.json()
+        location_id = response_data.get("id")
+
+        return {
+            "message": "Location created successfully.",
+            "locationId": location_id
+        }
+
+    return await _run_idempotent(request, "createLocation", args_obj, action)
 
 
 @app.post("/createCustomer")
-async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
+async def create_customer_endpoint(data: utils.CreateCustomerToolRequest, request: Request):
     print("Processing createCustomer request... 🔄")
 
     if isinstance(data.args, dict):
@@ -654,23 +932,26 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest):
 
     data = args_obj
 
-    try:
-        response = await create_customer(data)
+    async def action():
+        try:
+            response = await create_customer(data)
 
-        if "error" in response:
-            print(f"{response['error']}.")
-            return {"error": response["error"]}
+            if "error" in response:
+                print(f"{response['error']}.")
+                return {"error": response["error"]}
 
-        print("createCustomer request completed ✅")
-        return {
-            "customerId": response.get("customerId"),
-            "locationId": response.get("locationId"),
-            "status": "created"
-        }
+            print("createCustomer request completed ✅")
+            return {
+                "customerId": response.get("customerId"),
+                "locationId": response.get("locationId"),
+                "status": "created"
+            }
 
-    except Exception as e:
-        print(f"Error processing createCustomer request: {e}")
-        return {"error": str(e)}
+        except Exception as e:
+            print(f"Error processing createCustomer request: {e}")
+            return {"error": str(e)}
+
+    return await _run_idempotent(request, "createCustomer", args_obj, action)
 
 
 @app.post("/checkAvailability")
@@ -692,50 +973,43 @@ async def check_availability(data: utils.BookingRequest):
         "Content-Type": "application/json",
     }
 
-    print("Checking business unit...")
-    try:
-        url_jobTypes = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/job-types/"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response_jobTypes = await client.get(url_jobTypes, headers=headers)
+    # Obtener mapping jobTypeId → businessUnitIds (cacheado 30 min)
+    job_types = await _get_job_types(headers)
+    if not job_types:
+        return {"error": "Could not retrieve job type information from ServiceTitan. Please try again."}
 
-        if response_jobTypes.status_code == 200:
-            job_types_json = response_jobTypes.json()
-            job_types = {job_type["id"]: job_type["businessUnitIds"]
-                         for job_type in job_types_json["data"]}
-            business_units = job_types.get(data.jobTypeId, None)
-            if not business_units:
-                print(f"Job Type {data.jobTypeId} not found in response.")
-                return {"error": f"Job type {data.jobTypeId} not found. Cannot determine business unit."}
-        else:
-            print(f"❌ Failed to fetch job types: {response_jobTypes.status_code} - {response_jobTypes.text}")
-            return {"error": "Could not retrieve job type information. Please try again."}
+    business_units = job_types.get(data.jobTypeId)
+    if not business_units:
+        print(f"[checkAvailability] ❌ jobTypeId {data.jobTypeId} no encontrado en ST.")
+        return {"error": f"Job type {data.jobTypeId} not found. Cannot determine business unit."}
 
-        print("Business Unit Checked ✅")
-    except ValueError:
-        return {"error": "Checking business unit failed."}
-
-    available_slots = []
+    print(f"[checkAvailability] jobTypeId={data.jobTypeId} → BUs={business_units} ✅")
 
     try:
         available_slots = await check_availability_time(data.time, business_units, data.jobTypeId, access_token)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
-        if not available_slots:
-            print("No available slots found.")
-            start_date = datetime.strptime(data.time, "%Y-%m-%dT%H:%M:%SZ")
-            end_date = start_date + timedelta(days=42)
-            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
-    except Exception as e:
-        print(f"Error checking availability: {e}")
+    # None = error de API (distinto de lista vacía = genuinamente sin turnos)
+    if available_slots is None:
+        print("[checkAvailability] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again in a moment."}
 
-    print("Checking availability ✅")
+    if not available_slots:
+        print("[checkAvailability] Sin turnos disponibles.")
+        start_date = _parse_agent_datetime(data.time)
+        end_date = start_date + timedelta(days=42)
+        return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
+
+    print(f"[checkAvailability] ✅ {len(available_slots)} slot(s) encontrados.")
     return {
-        'businessUnitId': business_units[0],
-        'available_slots': available_slots
+        "businessUnitId": business_units[0],
+        "available_slots": available_slots
     }
 
 
 @app.post("/createJob")
-async def create_job(data: utils.JobCreateToolRequest):
+async def create_job(data: utils.JobCreateToolRequest, request: Request):
     print("Processing createJob request... 🔄")
 
     if isinstance(data.args, dict):
@@ -745,76 +1019,109 @@ async def create_job(data: utils.JobCreateToolRequest):
 
     data = args_obj
 
-    try:
-        if not data.locationId:
-            logger.error(f"[createJob] ❌ locationId is missing. customerId={data.customerId}. Agent must call /getCustomerLocations first.")
-            return {"error": "locationId is required. Please call getCustomerLocations first to get the correct locationId for this customer."}
+    async def action():
+        try:
+            if not data.locationId:
+                logger.error(f"[createJob] ❌ locationId is missing. customerId={data.customerId}. Agent must call /getCustomerLocations first.")
+                return {"error": "locationId is required. Please call getCustomerLocations first to get the correct locationId for this customer."}
 
-        access_token = await get_access_token()
-        headers = {
-            "Authorization": access_token,
-            "ST-App-Key": APP_ID,
-            "Content-Type": "application/json",
-        }
+            access_token = await get_access_token()
+            headers = {
+                "Authorization": access_token,
+                "ST-App-Key": APP_ID,
+                "Content-Type": "application/json",
+            }
 
-        # Asegurar formato de fecha con "Z"
-        if not data.jobStartTime.endswith("Z"):
-            data.jobStartTime += "Z"
-        if not data.jobEndTime.endswith("Z"):
-            data.jobEndTime += "Z"
+            # Asegurar formato de fecha con "Z"
+            if not data.jobStartTime.endswith("Z"):
+                data.jobStartTime += "Z"
+            if not data.jobEndTime.endswith("Z"):
+                data.jobEndTime += "Z"
 
-        # Convertir fechas a UTC desde hora local de Massachusetts
-        data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
-        data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
+            # Si el jobType tiene mas de una business unit, check_availability
+            # ya mezclo los slots de todas en una sola lista sin decir de cual
+            # era cada uno. Re-verificar contra ST cual BU tiene realmente el
+            # hueco a esta hora exacta, en vez de confiar en la que arrastro
+            # el agente desde la conversacion.
+            data.businessUnitId = await _resolve_business_unit(
+                headers, data.jobTypeId, data.jobStartTime, data.jobEndTime, data.businessUnitId
+            )
 
-        # Construir el payload para ServiceTitan
-        payload = {
-            "customerId": data.customerId,
-            "locationId": data.locationId,
-            "businessUnitId": data.businessUnitId,
-            "jobTypeId": data.jobTypeId,
-            "priority": data.priority,
-            "campaignId": data.campaignId,
-            "appointments": [
-                {
-                    "start": data.jobStartTime,
-                    "end": data.jobEndTime,
-                    "arrivalWindowStart": data.jobStartTime,
-                    "arrivalWindowEnd": data.jobEndTime,
-                }
-            ],
-            "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
-            "scheduledTime": datetime.now().strftime("%H:%M"),
-            "summary": data.summary
-        }
+            # Trazar conversión de timezone para debugging
+            print(f"[createJob] 🕐 Recibido del agente → start: {data.jobStartTime} | end: {data.jobEndTime}")
+            # massachusetts_to_utc asume que el agente envía hora Eastern (como la recibió
+            # de checkAvailability) y la convierte a UTC real para ServiceTitan.
+            try:
+                data.jobStartTime = massachusetts_to_utc(data.jobStartTime)
+                data.jobEndTime = massachusetts_to_utc(data.jobEndTime)
+            except ValueError as e:
+                print(f"[createJob] ❌ Formato de fecha/hora inválido: {e}")
+                return {"error": "Invalid date/time format received. Please re-confirm the appointment time."}
+            print(f"[createJob] 🕐 Enviado a ST (UTC) → start: {data.jobStartTime} | end: {data.jobEndTime}")
 
-        # Enviar request a ServiceTitan
-        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
-        print(f"[createJob] Payload enviado a ServiceTitan: {json.dumps(payload, indent=2)}")
+            # Construir el payload para ServiceTitan
+            payload = {
+                "customerId": data.customerId,
+                "locationId": data.locationId,
+                "businessUnitId": data.businessUnitId,
+                "jobTypeId": data.jobTypeId,
+                "priority": data.priority,
+                "campaignId": data.campaignId,
+                "appointments": [
+                    {
+                        "start": data.jobStartTime,
+                        "end": data.jobEndTime,
+                        "arrivalWindowStart": data.jobStartTime,
+                        "arrivalWindowEnd": data.jobEndTime,
+                    }
+                ],
+                "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
+                "scheduledTime": datetime.now().strftime("%H:%M"),
+                # escape() evita stored-XSS en la UI de ServiceTitan (el summary se
+                # renderiza como HTML para los dispatchers).
+                "summary": escape(data.summary or "")
+            }
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.post(url, headers=headers, json=payload)
+            # Enviar request a ServiceTitan
+            url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs"
+            print(f"[createJob] Payload enviado a ServiceTitan: {json.dumps(payload, indent=2)}")
 
-        print(f"[createJob] Status code: {response.status_code}")
-        print(f"[createJob] Response body: {response.text}")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
 
-        if response.status_code != 200:
-            print(f"[createJob] ❌ Error creando job: {response.status_code} - {response.text}")
-            return {"error": f"Failed to create job: {response.text}"}
+            print(f"[createJob] Status code: {response.status_code}")
+            print(f"[createJob] Response body: {response.text}")
 
-        job_data = response.json()
-        job_id = job_data.get("id")
-        appointment_id = job_data.get("lastAppointmentId")
-        print(f"[createJob] ✅ Job creado: jobId={job_id}, appointmentId={appointment_id}")
-        return {
-            "status": "Job booked",
-            "jobId": job_id,
-            "appointmentId": appointment_id
-        }
+            if response.status_code != 200:
+                # Loguear el detalle de ST server-side, pero NO devolverlo al agente.
+                print(f"[createJob] ❌ Error creando job: {response.status_code} - {response.text}")
+                if response.status_code in (400, 409, 422):
+                    return {"error": "That time is no longer available. Let me find another slot for you."}
+                return {"error": "Could not create the job right now. Please try again in a moment."}
 
-    except httpx.RequestError as e:
-        print(f"[createJob] ❌ Request error: {str(e)}")
-        return {"error": "Unexpected request error"}
+            job_data = response.json()
+            job_id = job_data.get("id")
+            appointment_id = job_data.get("lastAppointmentId")
+
+            # No confirmar un agendamiento sin jobId real: el agente tiene PROHIBIDO
+            # decir que agendó si no se puede verificar. Sin jobId no se podría
+            # cancelar/reprogramar después.
+            if not job_id:
+                print(f"[createJob] ⚠️ ST respondió 200 pero sin jobId. Body: {response.text[:300]}")
+                return {"error": "The booking could not be confirmed. Please try again."}
+
+            print(f"[createJob] ✅ Job creado: jobId={job_id}, appointmentId={appointment_id}")
+            return {
+                "status": "Job booked",
+                "jobId": job_id,
+                "appointmentId": appointment_id
+            }
+
+        except httpx.RequestError as e:
+            print(f"[createJob] ❌ Request error: {str(e)}")
+            return {"error": "Unexpected request error"}
+
+    return await _run_idempotent(request, "createJob", args_obj, action)
 
 
 @app.post("/findAppointments")
@@ -839,10 +1146,12 @@ async def find_appointments(data: utils.FindAppointmentToolRequest):
     }
 
     def to_eastern(ts: str) -> str:
+        if not ts:
+            return ""
         if ts.endswith("Z"):
             ts = ts.replace("Z", "+00:00")
         dt_utc = datetime.fromisoformat(ts)
-        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+        return dt_utc.astimezone(EASTERN_TIME).isoformat()
 
     async def fetch_jobs_by_status(job_status: str):
         url = (
@@ -948,10 +1257,12 @@ async def find_past_appointments(data: utils.FindAppointmentToolRequest):
     }
 
     def to_eastern_past(ts: str) -> str:
+        if not ts:
+            return ""
         if ts.endswith("Z"):
             ts = ts.replace("Z", "+00:00")
         dt_utc = datetime.fromisoformat(ts)
-        return dt_utc.astimezone(pytz.timezone("America/New_York")).isoformat()
+        return dt_utc.astimezone(EASTERN_TIME).isoformat()
 
     async def fetch_jobs_by_status_past(job_status: str):
         url = (
@@ -1051,26 +1362,28 @@ async def reschedule_appointment_time_availability(data: utils.ReScheduleToolReq
         f"Checking availability for businessUnitId={business_unit_id}, jobTypeId={job_type_id}, around {desired_time}...")
     try:
         slots_available = await check_availability_time(desired_time, business_unit_id, job_type_id)
-        if slots_available:
-            slots_eastern = [
-                {"start": utc_to_eastern(s["start"]), "end": utc_to_eastern(s["end"])}
-                for s in slots_available
-            ]
-            print("rescheduleAppointmentTimeAvailability request completed ")
-            return {"availableSlots": slots_eastern}
-        else:
-            print("No slots available.")
-            start_date = datetime.strptime(
-                data.newSchedule, "%Y-%m-%dT%H:%M:%SZ")
-            end_date = start_date + timedelta(days=42)
-            return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
-    except httpx.RequestError as e:
-        print(f"Error getting slots: {e}")
-        return {"error": "Error when requesting availability."}
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
+
+    if slots_available is None:
+        print("[rescheduleAvailability] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again."}
+
+    if slots_available:
+        # ST capacity API devuelve horarios en Eastern wall-clock mislabeled como "Z".
+        # No convertir: el agente debe recibirlos igual que en /checkAvailability.
+        # La conversión a UTC real ocurre en /rescheduleAppointment via massachusetts_to_utc.
+        print(f"[rescheduleAvailability] ✅ {len(slots_available)} slot(s) encontrados.")
+        return {"availableSlots": slots_available}
+
+    print("[rescheduleAvailability] Sin turnos disponibles.")
+    start_date = _parse_agent_datetime(data.newSchedule)
+    end_date = start_date + timedelta(days=42)
+    return {"message": f"No availability found when checking up to {end_date.strftime('%Y-%m-%d')}"}
 
 
 @app.post("/rescheduleAppointment")
-async def reschedule_appointment(data: utils.ReScheduleToolRequest):
+async def reschedule_appointment(data: utils.ReScheduleToolRequest, request: Request):
     print("Processing rescheduleAppointment request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1080,77 +1393,88 @@ async def reschedule_appointment(data: utils.ReScheduleToolRequest):
 
     data = args_obj
 
-    access_token = await get_access_token()
+    async def action():
+        access_token = await get_access_token()
 
-    appointment_id = data.appointmentId
-    technician_id = data.employeeId
-    new_schedule = data.newSchedule
+        appointment_id = data.appointmentId
+        technician_id = data.employeeId
+        new_schedule = data.newSchedule
 
-    # 1. Unassign technician if provided
-    st_headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
+        if not appointment_id:
+            return {"error": "Missing appointmentId in request."}
+        if not isinstance(new_schedule, str) or not new_schedule.strip():
+            return {"error": "Missing newSchedule in request."}
 
-    if technician_id:
-        tech_ids = technician_id if isinstance(technician_id, list) else [technician_id]
-        print(f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
-        url_unassign = (
-            f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}"
-            "/appointment-assignments/unassign-technicians"
+        # 1. Unassign technician if provided
+        st_headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
+
+        if technician_id:
+            tech_ids = technician_id if isinstance(technician_id, list) else [technician_id]
+            print(f"Unassigning technician(s) {tech_ids} from appointment {appointment_id}...")
+            url_unassign = (
+                f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}"
+                "/appointment-assignments/unassign-technicians"
+            )
+            unassign_payload = {
+                "jobAppointmentId": appointment_id,
+                "technicianIds": tech_ids
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp_unassign = await client.patch(url_unassign, json=unassign_payload, headers=st_headers)
+            if resp_unassign.status_code == 200:
+                print("Technician unassigned successfully ✅")
+            else:
+                print(f"Failed to unassign technician: {resp_unassign.text}")
+
+        # 2. Ensure the new_schedule string ends with "Z"
+        if not new_schedule.endswith("Z"):
+            new_schedule += "Z"
+
+        # 3. Convert from Massachusetts local time to UTC
+        try:
+            start_utc = massachusetts_to_utc(new_schedule)
+        except ValueError:
+            return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
+
+        # 4. Calculate end_utc = start_utc + 3 hours
+        start_dt = datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
+        end_dt = start_dt + timedelta(hours=3)
+        end_utc = end_dt.isoformat().replace("+00:00", "Z")
+
+        # 5. Send the reschedule PATCH
+        print(f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
+        url_resch = (
+            f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}"
+            f"/appointments/{appointment_id}/reschedule"
         )
-        unassign_payload = {
-            "jobAppointmentId": appointment_id,
-            "technicianIds": tech_ids
+        resch_payload = {
+            "start": start_utc,
+            "end": end_utc,
+            "arrivalWindowStart": start_utc,
+            "arrivalWindowEnd": end_utc
         }
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp_unassign = await client.patch(url_unassign, json=unassign_payload, headers=st_headers)
-        if resp_unassign.status_code == 200:
-            print("Technician unassigned successfully ✅")
+            resp = await client.patch(url_resch, json=resch_payload, headers=st_headers)
+
+        if resp.status_code == 200:
+            print("rescheduleAppointment request completed ✅")
+            return {"status": "rescheduleAppointment request processed successfully"}
         else:
-            print(f"Failed to unassign technician: {resp_unassign.text}")
+            print(f"Failed to reschedule appointment: {resp.text}")
+            return {
+                "error": f"Request error: {resp.status_code}",
+                "details": resp.text
+            }
 
-    # 2. Ensure the new_schedule string ends with "Z"
-    if not new_schedule.endswith("Z"):
-        new_schedule += "Z"
-
-    # 3. Convert from Massachusetts local time to UTC
-    start_utc = massachusetts_to_utc(new_schedule)
-
-    # 4. Calculate end_utc = start_utc + 3 hours
-    start_dt = datetime.fromisoformat(start_utc.replace("Z", "+00:00"))
-    end_dt = start_dt + timedelta(hours=3)
-    end_utc = end_dt.isoformat().replace("+00:00", "Z")
-
-    # 5. Send the reschedule PATCH
-    print(f"Rescheduling appointment {appointment_id} to start {start_utc} and end {end_utc}...")
-    url_resch = (
-        f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}"
-        f"/appointments/{appointment_id}/reschedule"
-    )
-    resch_payload = {
-        "start": start_utc,
-        "end": end_utc,
-        "arrivalWindowStart": start_utc,
-        "arrivalWindowEnd": end_utc
-    }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.patch(url_resch, json=resch_payload, headers=st_headers)
-
-    if resp.status_code == 200:
-        print("rescheduleAppointment request completed ✅")
-        return {"status": "rescheduleAppointment request processed successfully"}
-    else:
-        print(f"Failed to reschedule appointment: {resp.text}")
-        return {
-            "error": f"Request error: {resp.status_code}",
-            "details": resp.text
-        }
+    return await _run_idempotent(request, "rescheduleAppointment", args_obj, action)
 
 
 @app.post("/cancelAppointment")
-async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
+async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest, request: Request):
     print("Processing cancelAppointment request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1160,51 +1484,61 @@ async def cancel_appointment(data: utils.CancelJobAppointmentToolRequest):
 
     data = args_obj
 
-    # extraer directamente los datos necesarios
-    job_id = data.jobId
-    reason_id = data.reasonId
-    memo = data.memo
+    async def action():
+        # extraer directamente los datos necesarios
+        job_id = data.jobId
+        reason_id = data.reasonId
+        memo = data.memo
 
-    if not job_id:
-        print("Missing jobId in request.")
-        return {"error": "Missing jobId in request."}
+        if not job_id:
+            print("Missing jobId in request.")
+            return {"error": "Missing jobId in request."}
 
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
+        }
 
-    # llamar al endpoint de cancelación
-    url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
-    payload = {
-        "reasonId": reason_id,
-        "memo": memo
-    }
+        # llamar al endpoint de cancelación
+        url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}/cancel"
+        payload = {
+            "reasonId": reason_id,
+            "memo": memo
+        }
 
-    print(f"Cancelling job {job_id} with reason {reason_id}...")
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.put(url, headers=headers, json=payload)
-    print(f"External API responded: {resp.status_code}")
+        print(f"Cancelling job {job_id} with reason {reason_id}...")
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.put(url, headers=headers, json=payload)
+        print(f"External API responded: {resp.status_code}")
 
-    if resp.status_code == 200:
-        # a veces el body viene vacío
-        if not resp.text.strip():
+        if resp.status_code == 200:
+            # a veces el body viene vacío
+            if not resp.text.strip():
+                print("cancelAppointment request completed ✅")
+                return {"message": "Job canceled successfully"}
             print("cancelAppointment request completed ✅")
-            return {"message": "Job canceled successfully"}
-        print("cancelAppointment request completed ✅")
-        return resp.json()
-    elif resp.status_code == 404:
-        print("Job ID not found.")
-        return {"error": "Job ID not found", "details": resp.json()}
-    else:
-        print(f"Failed to cancel job: {resp.text}")
-        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            return resp.json()
+        elif resp.status_code == 404:
+            print("Job ID not found.")
+            return {"error": "Job ID not found", "details": resp.json()}
+        else:
+            try:
+                st_detail = resp.json()
+            except Exception:
+                st_detail = resp.text.strip()
+            print(f"Failed to cancel job: {st_detail}")
+            return {
+                "error": f"Request error: {resp.status_code}",
+                "details": st_detail or "ServiceTitan rejected the cancellation request."
+            }
+
+    return await _run_idempotent(request, "cancelAppointment", args_obj, action)
 
 
 @app.post("/updateJobSummary")
-async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
+async def update_job_summary(data: utils.UpdateJobSummaryToolRequest, request: Request):
     print("Processing updateJobSummary request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1214,55 +1548,58 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
 
     data = args_obj
 
-    job_id = data.jobId
-    info = data.info
+    async def action():
+        job_id = data.jobId
+        info = data.info
 
-    if not job_id or not info:
-        return {"error": "Missing required fields: jobId and info"}
+        if not job_id or not info:
+            return {"error": "Missing required fields: jobId and info"}
 
-    access_token = await get_access_token()
-    headers = {
-        "Authorization": access_token,
-        "ST-App-Key": APP_ID,
-        "Content-Type": "application/json",
-    }
-
-    print(f"Fetching current summary for job ID {job_id}...")
-
-    job_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        job_resp = await client.get(job_url, headers=headers)
-
-    if job_resp.status_code != 200:
-        return {
-            "error": f"Failed to fetch job data for job ID {job_id}",
-            "status_code": job_resp.status_code,
-            "details": job_resp.text
+        access_token = await get_access_token()
+        headers = {
+            "Authorization": access_token,
+            "ST-App-Key": APP_ID,
+            "Content-Type": "application/json",
         }
 
-    job_data = job_resp.json()
-    current_summary = job_data.get("summary", "")
+        print(f"Fetching current summary for job ID {job_id}...")
 
-    new_summary = f"<p>{info}</p>"
-    updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
+        job_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            job_resp = await client.get(job_url, headers=headers)
 
-    print(f"Updating summary for job ID {job_id}...")
-    patch_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
-    patch_payload = {"summary": updated_summary}
+        if job_resp.status_code != 200:
+            return {
+                "error": f"Failed to fetch job data for job ID {job_id}",
+                "status_code": job_resp.status_code,
+                "details": job_resp.text
+            }
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        patch_resp = await client.patch(patch_url, headers=headers, json=patch_payload)
+        job_data = job_resp.json()
+        current_summary = job_data.get("summary", "")
 
-    if patch_resp.status_code == 200:
-        print("updateJobSummary completed ✅")
-        return {"status": "Job summary updated"}
-    else:
-        print(f"Failed to update job summary: {patch_resp.text}")
-        return {
-            "error": "Failed to update job summary.",
-            "status_code": patch_resp.status_code,
-            "details": patch_resp.text
-        }
+        new_summary = f"<p>{escape(info or '')}</p>"
+        updated_summary = f"{current_summary}\n\n{new_summary}".strip() if current_summary else new_summary
+
+        print(f"Updating summary for job ID {job_id}...")
+        patch_url = f"https://api.servicetitan.io/jpm/v2/tenant/{TENANT_ID}/jobs/{job_id}"
+        patch_payload = {"summary": updated_summary}
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            patch_resp = await client.patch(patch_url, headers=headers, json=patch_payload)
+
+        if patch_resp.status_code == 200:
+            print("updateJobSummary completed ✅")
+            return {"status": "Job summary updated"}
+        else:
+            print(f"Failed to update job summary: {patch_resp.text}")
+            return {
+                "error": "Failed to update job summary.",
+                "status_code": patch_resp.status_code,
+                "details": patch_resp.text
+            }
+
+    return await _run_idempotent(request, "updateJobSummary", args_obj, action)
 
 
 # Outbound
@@ -1271,8 +1608,8 @@ async def update_job_summary(data: utils.UpdateJobSummaryToolRequest):
 @app.post("/checkAvailabilityOutbound/")
 async def check_availability_outbound(data: utils.BookingRequestOutbound):
     print("Processing checkAvailabilityOutbound request... 🔄")
-    jobType = 5879699
-    business_unit = 5878155
+    jobType = config.OUTBOUND_JOB_TYPE_ID
+    business_unit = config.OUTBOUND_BUSINESS_UNIT_ID
 
     if isinstance(data.args, dict):
         args_obj = utils.RequestArgsOutbound.parse_obj(data.args)
@@ -1281,27 +1618,41 @@ async def check_availability_outbound(data: utils.BookingRequestOutbound):
 
     data = args_obj
 
-    print("Checking availability...")
-
-    available_slots = []
+    print("[checkAvailabilityOutbound] Checking availability...")
 
     try:
         available_slots = await check_availability_time(data.time, business_unit, jobType)
+    except ValueError:
+        return {"error": "Invalid date/time format received. Please confirm the requested appointment time."}
 
-        if not available_slots:
-            print("No available slots found.")
-            return {'message': 'No availability found.'}
+    if available_slots is None:
+        print("[checkAvailabilityOutbound] ❌ API de ST no disponible.")
+        return {"error": "ServiceTitan availability API is currently unavailable. Please try again."}
 
-    except Exception as e:
-        print(f"Error checking availability: {e}")
-    print("checkAvailabilityOutbound completed ✅")
-    return {
-        'available_slots': available_slots
-    }
+    if not available_slots:
+        print("[checkAvailabilityOutbound] Sin turnos disponibles.")
+        return {"message": "No availability found."}
+
+    print(f"[checkAvailabilityOutbound] ✅ {len(available_slots)} slot(s).")
+    return {"available_slots": available_slots}
+
+
+async def _resolve_call_id(request: Request, args_obj):
+    """Get the Retell call_id from the request body's 'call' object,
+    falling back to whatever the agent passed in args."""
+    try:
+        body = await request.json()
+        call_obj = body.get("call") or {}
+        cid = call_obj.get("call_id") or body.get("call_id")
+        if cid:
+            return cid
+    except Exception:
+        pass
+    return getattr(args_obj, "callId", None)
 
 
 @app.post("/storeCallData")
-async def store_call_data(data: utils.StoreCallDataToolRequest):
+async def store_call_data(data: utils.StoreCallDataToolRequest, request: Request):
     print("Processing storeCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1311,19 +1662,35 @@ async def store_call_data(data: utils.StoreCallDataToolRequest):
 
     _cleanup_sessions()
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
+    if not call_id:
+        print("[storeCallData] ❌ Could not determine call ID.")
+        return {"error": "Could not determine the call ID for this session."}
+
     if call_id not in call_sessions:
         call_sessions[call_id] = {"_ts": time.time()}
 
-    call_sessions[call_id][args_obj.field] = args_obj.value
+    # El agente puede mandar el valor dictado ("six oh three...", "j o e at...").
+    # Se normaliza acá para que ST y el mail a la oficina reciban el valor final.
+    clean_value = normalize.normalize_call_field(args_obj.field, args_obj.value)
+
+    # Dedupe: mismo campo + mismo valor ya guardado → no-op (bug conocido:
+    # burst de 8 stores idénticos en el mismo ms tras un transfer fallido).
+    if call_sessions[call_id].get(args_obj.field) == clean_value:
+        print(f"[storeCallData] callId={call_id} | {args_obj.field} sin cambios (dedupe) ✅")
+        return {"status": "stored", "field": args_obj.field, "value": clean_value}
+
+    call_sessions[call_id][args_obj.field] = clean_value
     call_sessions[call_id]["_ts"] = time.time()
 
-    print(f"[storeCallData] callId={call_id} | {args_obj.field} = {args_obj.value} ✅")
-    return {"status": "stored", "field": args_obj.field, "value": args_obj.value}
+    if clean_value != args_obj.value:
+        print(f"[storeCallData] callId={call_id} | {args_obj.field} normalizado: '{args_obj.value}' → '{clean_value}'")
+    print(f"[storeCallData] callId={call_id} | {args_obj.field} = {clean_value} ✅")
+    return {"status": "stored", "field": args_obj.field, "value": clean_value}
 
 
 @app.post("/getCallData")
-async def get_call_data(data: utils.GetCallDataToolRequest):
+async def get_call_data(data: utils.GetCallDataToolRequest, request: Request):
     print("Processing getCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1331,7 +1698,7 @@ async def get_call_data(data: utils.GetCallDataToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
     session = call_sessions.get(call_id, {})
 
     # Build ordered field list (skip internal keys starting with _)
@@ -1353,7 +1720,7 @@ async def get_call_data(data: utils.GetCallDataToolRequest):
 
 
 @app.post("/updateCallField")
-async def update_call_field(data: utils.UpdateCallFieldToolRequest):
+async def update_call_field(data: utils.UpdateCallFieldToolRequest, request: Request):
     print("Processing updateCallField request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1361,21 +1728,26 @@ async def update_call_field(data: utils.UpdateCallFieldToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
+    call_id = await _resolve_call_id(request, args_obj)
+    if not call_id:
+        print("[updateCallField] ❌ Could not determine call ID.")
+        return {"error": "Could not determine the call ID for this session."}
+
     if call_id not in call_sessions:
         print(f"[updateCallField] callId={call_id} not found, creating new session")
         call_sessions[call_id] = {"_ts": time.time()}
 
     old_value = call_sessions[call_id].get(args_obj.field, "—")
-    call_sessions[call_id][args_obj.field] = args_obj.value
+    clean_value = normalize.normalize_call_field(args_obj.field, args_obj.value)
+    call_sessions[call_id][args_obj.field] = clean_value
     call_sessions[call_id]["_ts"] = time.time()
 
-    print(f"[updateCallField] callId={call_id} | {args_obj.field}: '{old_value}' → '{args_obj.value}' ✅")
-    return {"status": "updated", "field": args_obj.field, "oldValue": old_value, "newValue": args_obj.value}
+    print(f"[updateCallField] callId={call_id} | {args_obj.field}: '{old_value}' → '{clean_value}' ✅")
+    return {"status": "updated", "field": args_obj.field, "oldValue": old_value, "newValue": clean_value}
 
 
 @app.post("/clearCallData")
-async def clear_call_data(data: utils.ClearCallDataToolRequest):
+async def clear_call_data(data: utils.ClearCallDataToolRequest, request: Request):
     print("Processing clearCallData request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1383,8 +1755,8 @@ async def clear_call_data(data: utils.ClearCallDataToolRequest):
     else:
         args_obj = data.args
 
-    call_id = args_obj.callId
-    if call_id in call_sessions:
+    call_id = await _resolve_call_id(request, args_obj)
+    if call_id and call_id in call_sessions:
         del call_sessions[call_id]
         print(f"[clearCallData] callId={call_id} cleared ✅")
         return {"status": "cleared"}
@@ -1413,16 +1785,54 @@ async def get_direct_line(data: utils.DirectLineToolRequest):
     return {"message": "We don't have contact information for that person. Is there anything else I can help you with?"}
 
 
-def _send_gmail(subject: str, body: str):
+@app.post("/suggestZip")
+async def suggest_zip(data: utils.SuggestZipToolRequest):
+    """Inferencia de zip por tabla estática (geocode.xyz descartado por poco
+    confiable). single → Harmony lo usa sin preguntar; multiple → Harmony
+    pregunta '¿es XXXXX o YYYYY?'; unknown → Harmony pide el zip como siempre."""
+    print("Processing suggestZip request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.SuggestZipRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+
+    city = (args_obj.city or "").strip().lower()
+    state_raw = (args_obj.state or "").strip().lower()
+    state = config.STATE_ABBR.get(state_raw, state_raw[:2])
+
+    if not city or not state:
+        return {"status": "unknown", "message": "Ask the caller for their zip code."}
+
+    zips = config.CITY_ZIPS.get(f"{city}|{state}")
+    if not zips:
+        print(f"[suggestZip] Sin datos para {city}|{state} → unknown")
+        return {"status": "unknown", "message": "No zip data for this city. Ask the caller for their zip code."}
+
+    if len(zips) == 1:
+        print(f"[suggestZip] ✅ {city}|{state} → {zips[0]} (único)")
+        return {"status": "single", "zip": zips[0],
+                "message": "Use this zip code silently. Do not ask the caller for it — just include it in the final read-back."}
+
+    offered = zips[:2]
+    print(f"[suggestZip] {city}|{state} → {len(zips)} opciones, ofreciendo {offered}")
+    return {"status": "multiple", "zips": offered,
+            "message": "Ask the caller which of these zip codes is theirs, e.g. 'And is that the 03060 or 03062 zip?'. "
+                       "If neither matches, ask the caller directly for their zip code instead."}
+
+
+def _send_gmail(subject: str, body: str, html_body: str = None):
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         print("❌ Gmail credentials not configured (GMAIL_USER / GMAIL_APP_PASSWORD missing)")
         return False
     try:
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("alternative")
         msg["From"] = GMAIL_USER
         msg["To"] = OFFICE_EMAIL
         msg["Subject"] = subject
         msg.attach(MIMEText(body, "plain"))
+        if html_body:
+            msg.attach(MIMEText(html_body, "html"))
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
             server.starttls()
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
@@ -1434,7 +1844,7 @@ def _send_gmail(subject: str, body: str):
 
 
 @app.post("/sendOfficeMessage")
-async def send_office_message(data: utils.OfficeMessageToolRequest):
+async def send_office_message(data: utils.OfficeMessageToolRequest, request: Request):
     print("Processing sendOfficeMessage request... 🔄")
 
     if isinstance(data.args, dict):
@@ -1442,28 +1852,112 @@ async def send_office_message(data: utils.OfficeMessageToolRequest):
     else:
         args_obj = data.args
 
-    caller_info = ""
-    if args_obj.callerName:
-        caller_info += f"Caller: {args_obj.callerName}\n"
-    if args_obj.callerPhone:
-        caller_info += f"Phone: {args_obj.callerPhone}\n"
+    async def action():
+        # Merge both naming conventions (callerName/callerPhone and name/number)
+        name = args_obj.name or args_obj.callerName
+        phone = normalize.normalize_phone(args_obj.number or args_obj.callerPhone)
+        email = normalize.normalize_email(args_obj.email) if args_obj.email else None
+        is_emergency = str(args_obj.isEmergency).strip().lower() in ("true", "yes", "1")
 
-    subject = "Harmony - Customer Question Unanswered"
-    body = (
-        f"A caller had a question Harmony could not answer.\n\n"
-        f"{caller_info}"
-        f"Question: {args_obj.question}\n\n"
-        f"Please follow up with the customer."
-    )
+        if not any([args_obj.question, name, phone, args_obj.reason, args_obj.callback]):
+            print("sendOfficeMessage: no usable content provided ❌")
+            return {"error": "No message content provided."}
 
-    success = await asyncio.to_thread(_send_gmail, subject, body)
+        # Enriquecer con todo lo recolectado durante la llamada (session store):
+        # dirección, servicio, fecha/hora pedida — datos que antes no llegaban.
+        call_id = await _resolve_call_id(request, args_obj)
+        session = call_sessions.get(call_id, {}) if call_id else {}
 
-    if success:
-        print("sendOfficeMessage completed ✅")
-        return {"status": "Message sent to office successfully"}
-    else:
-        print("sendOfficeMessage failed ❌")
-        return {"error": "Failed to send message. Please try again or call the office directly."}
+        caller_rows = [
+            ("Name", name),
+            ("Phone", phone),
+            ("Email", email or session.get("email")),
+            ("Reason", args_obj.reason),
+            ("Preferred callback", args_obj.callback),
+        ]
+        caller_rows = [(label, value) for label, value in caller_rows if value]
+
+        call_rows = []
+        for field, label in FIELD_LABELS.items():
+            value = session.get(field)
+            if value and field not in ("customerName", "customerPhone", "email"):
+                call_rows.append((label, value))
+
+        now_eastern = datetime.now(EASTERN_TIME).strftime("%A, %B %d — %I:%M %p ET")
+
+        # Subject: tipo + nombre, para que la bandeja de la oficina se lea sola.
+        who = name or "Unknown caller"
+        if is_emergency:
+            subject = f"🚨 [Harmony] EMERGENCY — {who} needs immediate callback"
+        elif args_obj.question:
+            subject = f"[Harmony] Question from {who} — needs an answer"
+        else:
+            subject = f"[Harmony] Callback request — {who}"
+
+        # --- Cuerpo texto plano (fallback) ---
+        plain_lines = [f"{'EMERGENCY — call back ASAP' if is_emergency else 'Follow-up needed'}",
+                       f"Received: {now_eastern}", ""]
+        plain_lines += [f"{label}: {value}" for label, value in caller_rows]
+        if args_obj.question:
+            plain_lines += ["", f"Question / message: {args_obj.question}"]
+        if call_rows:
+            plain_lines += ["", "Details collected during the call:"]
+            plain_lines += [f"  {label}: {value}" for label, value in call_rows]
+        if call_id:
+            plain_lines += ["", f"Retell call ID: {call_id}"]
+        plain_lines += ["", "— Sent automatically by Harmony (Cornerstone voice agent)"]
+        body = "\n".join(plain_lines)
+
+        # --- Cuerpo HTML ---
+        def _rows_html(rows):
+            return "".join(
+                f"<tr><td style='padding:6px 14px 6px 0;color:#666;white-space:nowrap;vertical-align:top'>{escape(str(l))}</td>"
+                f"<td style='padding:6px 0;color:#111'><strong>{escape(str(v))}</strong></td></tr>"
+                for l, v in rows
+            )
+
+        banner = (
+            "<div style='background:#c0392b;color:#fff;padding:10px 16px;border-radius:6px 6px 0 0;font-size:16px'>"
+            "🚨 EMERGENCY — call back ASAP</div>"
+            if is_emergency else
+            "<div style='background:#2c3e50;color:#fff;padding:10px 16px;border-radius:6px 6px 0 0;font-size:16px'>"
+            "Message from Harmony</div>"
+        )
+        question_html = (
+            f"<p style='background:#f6f6f6;border-left:4px solid #2c3e50;padding:10px 14px;margin:14px 0'>"
+            f"{escape(args_obj.question)}</p>" if args_obj.question else ""
+        )
+        call_details_html = (
+            f"<h3 style='margin:18px 0 4px;font-size:14px;color:#444'>Details collected during the call</h3>"
+            f"<table style='border-collapse:collapse;font-size:14px'>{_rows_html(call_rows)}</table>"
+            if call_rows else ""
+        )
+        html_body = f"""
+        <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;border:1px solid #e0e0e0;border-radius:6px">
+          {banner}
+          <div style="padding:16px">
+            <p style="color:#888;font-size:12px;margin:0 0 12px">Received {escape(now_eastern)}</p>
+            <table style="border-collapse:collapse;font-size:14px">{_rows_html(caller_rows)}</table>
+            {question_html}
+            {call_details_html}
+            <p style="color:#aaa;font-size:11px;margin:18px 0 0">
+              Sent automatically by Harmony — Cornerstone voice agent{f" · Call ID {escape(call_id)}" if call_id else ""}
+            </p>
+          </div>
+        </div>
+        """
+
+        success = await asyncio.to_thread(_send_gmail, subject, body, html_body)
+
+        if success:
+            print("sendOfficeMessage completed ✅")
+            return {"status": "Message sent to office successfully"}
+        else:
+            print("sendOfficeMessage failed ❌")
+            return {"error": "Failed to send message. Please try again or call the office directly."}
+
+    return await _run_idempotent(request, "sendOfficeMessage", args_obj, action)
 
 
 # start the server: fastapi dev main.py
+
