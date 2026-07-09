@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils/cn";
 
 const NAV_ITEMS = [
@@ -39,6 +40,9 @@ export function Sidebar({ isOpen, onClose, unreadCount = 0 }: SidebarProps) {
           isOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
+        <Link href="/" onClick={onClose} className="mb-6 block px-2" aria-label="Cornerstone - Inicio">
+          <Logo tone="onDark" className="h-10" />
+        </Link>
         <ul className="space-y-1">
           {NAV_ITEMS.map((item) => (
             <li key={item.href}>
