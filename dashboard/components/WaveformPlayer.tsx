@@ -27,20 +27,21 @@ function formatClock(seconds: number): string {
 }
 
 interface WaveformPlayerProps {
-  recordingBlobUrl: string;
+  recordingUrl: string;
   seed: string;
   durationS: number;
 }
 
-export function WaveformPlayer({ recordingBlobUrl, seed, durationS }: WaveformPlayerProps) {
+export function WaveformPlayer({ recordingUrl, seed, durationS }: WaveformPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [audioError, setAudioError] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [current, setCurrent] = useState(0);
   const [speed, setSpeed] = useState(1);
   const bars = barHeights(seed || "harmony");
 
-  if (!recordingBlobUrl) {
+  if (!recordingUrl || audioError) {
     return (
       <div className="rounded-[24px] border border-dashed border-line bg-muted/40 p-8 text-center text-sm text-ink-soft">
         Recording unavailable for this call.
@@ -53,6 +54,7 @@ export function WaveformPlayer({ recordingBlobUrl, seed, durationS }: WaveformPl
     if (!audio) return;
 
     if (audio.paused) {
+      setAudioError(false);
       void audio.play();
       setPlaying(true);
     } else {
@@ -137,7 +139,7 @@ export function WaveformPlayer({ recordingBlobUrl, seed, durationS }: WaveformPl
             {speed}x
           </button>
           <a
-            href={recordingBlobUrl}
+            href={recordingUrl}
             download
             className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/20"
           >
@@ -148,7 +150,11 @@ export function WaveformPlayer({ recordingBlobUrl, seed, durationS }: WaveformPl
 
       <audio
         ref={audioRef}
-        src={recordingBlobUrl}
+        src={recordingUrl}
+        onError={() => {
+          setAudioError(true);
+          setPlaying(false);
+        }}
         onTimeUpdate={onTimeUpdate}
         onEnded={() => setPlaying(false)}
         className="hidden"
