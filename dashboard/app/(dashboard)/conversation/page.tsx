@@ -2,7 +2,7 @@ import { Bars } from "@/components/charts/Bars";
 import { Donut } from "@/components/charts/Donut";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KpiCard } from "@/components/ui/KpiCard";
+import { KpiDeck } from "@/components/ui/KpiDeck";
 import { TabHeader } from "@/components/ui/TabHeader";
 import { getCachedCalls } from "@/lib/data/cached-repository";
 import { dayBuckets, kpiDelta, previousWindow } from "@/lib/kpi";
@@ -62,6 +62,8 @@ export default async function ConversationPage({ searchParams }: { searchParams:
   const droppedDelta = kpiDelta(calls, previous, (entries) => entries.filter((call) => call.isStalled).length, false);
   const negativeDelta = kpiDelta(calls, previous, negativeRate, false);
 
+  const trendDays = buckets.map((bucket) => bucket[0]?.day ?? "");
+
   const kpis = [
     {
       label: "Positive",
@@ -71,7 +73,8 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       deltaTone: positiveDelta.tone,
       trend: buckets.map((bucket) => positiveRate(bucket)),
       sparkTone: "good" as const,
-      icon: <Icon name="positive" />
+      icon: <Icon name="positive" />,
+      chartFormat: "percent" as const
     },
     {
       label: "Spam filtered",
@@ -81,7 +84,8 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       deltaTone: spamDelta.tone,
       trend: buckets.map((bucket) => spamRate(bucket)),
       sparkTone: "accent" as const,
-      icon: <Icon name="shield" />
+      icon: <Icon name="shield" />,
+      chartFormat: "percent" as const
     },
     {
       label: "Dropped / silent",
@@ -91,7 +95,8 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       deltaTone: droppedDelta.tone,
       trend: buckets.map((bucket) => bucket.filter((call) => call.isStalled).length),
       sparkTone: "ink" as const,
-      icon: <Icon name="stalled" />
+      icon: <Icon name="stalled" />,
+      chartFormat: "number" as const
     },
     {
       label: "Negative",
@@ -101,7 +106,8 @@ export default async function ConversationPage({ searchParams }: { searchParams:
       deltaTone: negativeDelta.tone,
       trend: buckets.map((bucket) => negativeRate(bucket)),
       sparkTone: "bad" as const,
-      icon: <Icon name="negative" />
+      icon: <Icon name="negative" />,
+      chartFormat: "percent" as const
     }
   ];
 
@@ -121,11 +127,7 @@ export default async function ConversationPage({ searchParams }: { searchParams:
         />
       ) : (
         <>
-          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {kpis.map((kpi) => (
-              <KpiCard key={kpi.label} {...kpi} />
-            ))}
-          </section>
+          <KpiDeck items={kpis} trendDays={trendDays} />
 
           <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_1.2fr]">
             <Card className="space-y-5">
