@@ -35,6 +35,7 @@ interface KpiCardProps {
   trend: number[];
   sparkTone?: SparkTone;
   icon: ReactNode;
+  onShowChart?: () => void;
 }
 
 export function KpiCard({
@@ -45,10 +46,32 @@ export function KpiCard({
   deltaTone = "neutral",
   trend,
   sparkTone = "accent",
-  icon
+  icon,
+  onShowChart
 }: KpiCardProps) {
+  const interactive = typeof onShowChart === "function";
+
   return (
-    <Card className="group flex h-full flex-col gap-5 overflow-hidden transition duration-200 will-change-transform hover:-translate-y-1 hover:border-accent/25 hover:shadow-[0_26px_64px_rgba(2,6,20,0.30)]">
+    <Card
+      className={cn(
+        "group flex h-full flex-col gap-5 overflow-hidden transition duration-200 will-change-transform hover:-translate-y-1 hover:border-accent/25 hover:shadow-[0_26px_64px_rgba(2,6,20,0.30)]",
+        interactive && "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+      )}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? `${label} — show chart` : undefined}
+      onClick={interactive ? onShowChart : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onShowChart?.();
+              }
+            }
+          : undefined
+      }
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-ink-soft">
@@ -70,23 +93,40 @@ export function KpiCard({
 
       <p className="text-sm leading-6 text-ink-soft">{footnote}</p>
 
-      <div className="mt-auto flex items-end justify-between gap-4 border-t border-line/70 pt-4">
-        <span
-          className={cn(
-            "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]",
-            deltaToneClasses[deltaTone]
-          )}
-        >
-          {deltaLabel}
-        </span>
-        <div
-          className={cn(
-            "h-11 w-28 rounded-[18px] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-            sparkSurfaceClasses[sparkTone]
-          )}
-        >
-          <Sparkline points={trend} tone={sparkTone} />
+      <div className="mt-auto space-y-3 border-t border-line/70 pt-4">
+        <div className="flex items-end justify-between gap-4">
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]",
+              deltaToneClasses[deltaTone]
+            )}
+          >
+            {deltaLabel}
+          </span>
+          <div
+            className={cn(
+              "h-11 w-28 rounded-[18px] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+              sparkSurfaceClasses[sparkTone]
+            )}
+          >
+            <Sparkline points={trend} tone={sparkTone} />
+          </div>
         </div>
+
+        {interactive ? (
+          <span
+            aria-hidden="true"
+            className="flex items-center justify-center gap-1.5 rounded-full border border-line/70 bg-muted/60 px-3 py-2 text-xs font-semibold text-ink-soft transition-colors group-hover:border-accent/25 group-hover:bg-accent/12 group-hover:text-accent"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6" />
+            </svg>
+            Show chart
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="m9 6 6 6-6 6" />
+            </svg>
+          </span>
+        ) : null}
       </div>
     </Card>
   );
