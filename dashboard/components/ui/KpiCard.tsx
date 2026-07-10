@@ -48,7 +48,7 @@ export function KpiCard({
   icon
 }: KpiCardProps) {
   return (
-    <Card className="flex h-full flex-col gap-5 overflow-hidden">
+    <Card className="group flex h-full flex-col gap-5 overflow-hidden transition duration-200 will-change-transform hover:-translate-y-1 hover:border-accent/25 hover:shadow-[0_26px_64px_rgba(2,6,20,0.30)]">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-ink-soft">
@@ -60,7 +60,7 @@ export function KpiCard({
         </div>
         <div
           className={cn(
-            "flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px]",
+            "flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] transition-transform duration-200 group-hover:scale-105",
             iconToneClasses[sparkTone]
           )}
         >

@@ -32,14 +32,18 @@ vi.mock("next/link", () => ({
 }));
 
 describe("Sidebar", () => {
-  it("muestra los 6 items de navegacion final", () => {
+  it("muestra los items de navegacion visibles", () => {
     render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
-    ["Overview", "Bookings", "Conversation", "Cost", "Calls", "Messages"].forEach(
-      (label) => {
-        expect(screen.getByText(label)).toBeInTheDocument();
-      }
-    );
+    ["Overview", "Bookings", "Conversation", "Cost", "Calls"].forEach((label) => {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    });
+  });
+
+  it("oculta el tab Messages hasta que la feature este terminada", () => {
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
+
+    expect(screen.queryByText("Messages")).not.toBeInTheDocument();
   });
 
   it("llama a onClose al hacer click en un link", () => {
@@ -59,10 +63,10 @@ describe("Sidebar", () => {
     expect(nav.className).toContain("-translate-x-[calc(100%+1rem)]");
   });
 
-  it("muestra el badge de no leidos junto a Messages cuando unreadCount > 0", () => {
+  it("no muestra badge de Messages aunque unreadCount > 0 mientras el tab este oculto", () => {
     render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} unreadCount={3} />);
 
-    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.queryByText("3")).not.toBeInTheDocument();
   });
 
   it("no muestra badge cuando unreadCount es 0 o no se pasa", () => {

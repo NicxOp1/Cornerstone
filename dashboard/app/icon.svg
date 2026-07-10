@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Harmony">
+  <defs>
+    <linearGradient id="bg" x1="18" x2="78" y1="10" y2="84" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF06A" />
+      <stop offset="100%" stop-color="#F5E000" />
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="80" height="80" rx="24" fill="url(#bg)" />
+  <path d="M30 26 H42 V42 H54 V26 H66 V70 H54 V54 H42 V70 H30 Z" fill="#2A2A8C" />
+</svg>

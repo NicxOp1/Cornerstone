@@ -15,8 +15,9 @@ const NAV_ITEMS = [
     matchers: ["/conversation", "/conversacion"]
   },
   { href: "/cost", icon: "cost", label: "Cost", matchers: ["/cost", "/costo"] },
-  { href: "/calls", icon: "calls", label: "Calls", matchers: ["/calls", "/llamadas"] },
-  { href: "/messages", icon: "messages", label: "Messages", matchers: ["/messages", "/mensajes"] }
+  { href: "/calls", icon: "calls", label: "Calls", matchers: ["/calls", "/llamadas"] }
+  // Messages queda oculto hasta terminar la feature. Restaurar cuando esté listo:
+  // { href: "/messages", icon: "messages", label: "Messages", matchers: ["/messages", "/mensajes"] }
 ];
 
 interface SidebarProps {

@@ -168,14 +168,16 @@ export function OverviewClient({
 
   return (
     <div className="space-y-6">
-      <header className="relative overflow-hidden rounded-[36px] border border-line/70 bg-[linear-gradient(180deg,rgba(8,11,21,0.98),rgba(18,24,43,0.94))] p-6 shadow-panel md:p-8">
+      <header className="animate-rise relative overflow-hidden rounded-[36px] border border-line/70 bg-[linear-gradient(180deg,rgba(8,11,21,0.98),rgba(18,24,43,0.94))] p-6 shadow-panel md:p-8">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,224,0,0.2),transparent_30%),radial-gradient(circle_at_left_center,rgba(81,92,191,0.18),transparent_22%)]" />
         <div className="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl space-y-5">
             <span className="inline-flex rounded-full border border-accent/18 bg-accent/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
               {rangeLabel || "Live window"}
             </span>
-            <Logo className="h-14 md:h-16" />
+            <div className="flex justify-center py-1">
+              <Logo className="h-24 md:h-28" />
+            </div>
             <div>
               <h1 className="font-display text-4xl leading-none tracking-tight text-white md:text-6xl">
                 {greeting}
@@ -189,12 +191,6 @@ export function OverviewClient({
           <div className="flex flex-col gap-4 xl:items-end">
             <div className="flex flex-wrap items-center gap-3">
               <DateRangeSelector value={range} />
-              <button
-                type="button"
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(245,224,0,1),rgba(255,244,134,0.98))] px-5 text-sm font-semibold text-accent-ink shadow-[0_16px_36px_rgba(245,224,0,0.18)] transition hover:brightness-[1.02]"
-              >
-                Export report
-              </button>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
@@ -221,7 +217,10 @@ export function OverviewClient({
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+      <section
+        className="animate-rise grid grid-cols-1 gap-4 xl:grid-cols-4"
+        style={{ animationDelay: "80ms" }}
+      >
         {kpis.map((kpi) => (
           <KpiCard
             key={kpi.label}
@@ -237,7 +236,7 @@ export function OverviewClient({
         ))}
       </section>
 
-      <Card className="space-y-6">
+      <Card className="animate-rise space-y-6" style={{ animationDelay: "160ms" }}>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent/75">Activity</p>
@@ -269,7 +268,10 @@ export function OverviewClient({
         )}
       </Card>
 
-      <section className="grid gap-6 xl:grid-cols-[1.35fr_minmax(0,1fr)]">
+      <section
+        className="animate-rise grid gap-6 xl:grid-cols-[1.35fr_minmax(0,1fr)]"
+        style={{ animationDelay: "240ms" }}
+      >
         <Card className="space-y-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">Volume</p>

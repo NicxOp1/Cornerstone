@@ -21,7 +21,7 @@ function MarkSvg({ className }: { className?: string }) {
       </defs>
       <rect x="8" y="8" width="80" height="80" rx="24" fill="url(#cornerstone-mark-bg)" />
       <path
-        d="M31 24h11.6l8 12 8.2-12H70v48H58V44.6l-7.4 10.9h-.4l-7.2-10.7V72H31V24Z"
+        d="M30 26 H42 V42 H54 V26 H66 V70 H54 V54 H42 V70 H30 Z"
         fill="#2A2A8C"
       />
     </svg>
