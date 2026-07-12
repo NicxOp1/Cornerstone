@@ -91,6 +91,31 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         called_call = mock_process_call.call_args.args[0]
         self.assertEqual(called_call["call_id"], "b")
 
+    @patch("dashboard_sync.reconcile.pipeline.process_call")
+    @patch("dashboard_sync.reconcile.sheets_client.connect")
+    @patch("dashboard_sync.reconcile.fetch_recent_calls")
+    @patch("dashboard_sync.reconcile.config")
+    async def test_passes_custom_lookback_hours_to_fetch(
+        self,
+        mock_config,
+        mock_fetch,
+        mock_connect,
+        mock_process_call,
+    ):
+        from dashboard_sync import reconcile
+
+        mock_config.GOOGLE_SHEET_ID = "sheet-1"
+        mock_config.BLOB_READ_WRITE_TOKEN = "blob-token"
+        mock_config.google_service_account_info = lambda: {}
+        mock_fetch.return_value = []
+        fake_sheets = MagicMock()
+        fake_sheets.get_existing_call_ids.return_value = []
+        mock_connect.return_value = fake_sheets
+
+        await reconcile.run(lookback_hours=96)
+
+        mock_fetch.assert_called_once_with(lookback_hours=96)
+
 
 if __name__ == "__main__":
     unittest.main()

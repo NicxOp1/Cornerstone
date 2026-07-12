@@ -3,6 +3,7 @@ Retell y procesa cualquier call_id que el webhook se haya perdido. Uso:
 python -m dashboard_sync.reconcile"""
 
 import asyncio
+import os
 import time
 
 import requests
@@ -65,18 +66,18 @@ def filter_unsynced(calls: list, already_synced_ids: set) -> list:
     return [call for call in calls if call.get("call_id") and call["call_id"] not in already_synced_ids]
 
 
-async def run():
+async def run(lookback_hours: int = DEFAULT_LOOKBACK_HOURS):
     sheets = sheets_client.connect(
         sheet_id=config.GOOGLE_SHEET_ID,
         service_account_info=config.google_service_account_info(),
     )
 
-    calls = fetch_recent_calls()
+    calls = fetch_recent_calls(lookback_hours=lookback_hours)
     already_synced = set(sheets.get_existing_call_ids())
     pending = filter_unsynced(calls, already_synced)
     print(
         f"[reconcile] {len(pending)} llamadas sin sincronizar de {len(calls)} "
-        f"en las ultimas {DEFAULT_LOOKBACK_HOURS}h"
+        f"en las ultimas {lookback_hours}h"
     )
 
     for raw_call in pending:
@@ -88,4 +89,5 @@ async def run():
 
 
 if __name__ == "__main__":
-    asyncio.run(run())
+    hours = int(os.environ.get("RECONCILE_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS))
+    asyncio.run(run(lookback_hours=hours))
