@@ -7,6 +7,9 @@ import os
 import time
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from dashboard_sync import config, pipeline, sheets_client
 

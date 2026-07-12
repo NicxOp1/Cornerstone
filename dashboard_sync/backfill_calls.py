@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 from typing import Iterator, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from dashboard_sync import config, pipeline, sheets_client
 
 
