@@ -42,6 +42,24 @@ class IterLocalCallFilesTests(unittest.TestCase):
             found = list(iter_local_call_files(Path(tmp)))
             self.assertEqual(found, [])
 
+    def test_since_filters_out_day_folders_before_the_given_date(self):
+        from dashboard_sync.backfill_calls import iter_local_call_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "julio" / "2026-07-08").mkdir(parents=True)
+            (base / "julio" / "2026-07-09").mkdir(parents=True)
+            (base / "julio" / "2026-07-12").mkdir(parents=True)
+            (base / "julio" / "2026-07-08" / "call_old.json").write_text("{}", encoding="utf-8")
+            (base / "julio" / "2026-07-09" / "call_since.json").write_text("{}", encoding="utf-8")
+            (base / "julio" / "2026-07-12" / "call_recent.json").write_text("{}", encoding="utf-8")
+
+            found = list(iter_local_call_files(base, since="2026-07-09"))
+
+            self.assertEqual(
+                sorted(f.name for f in found), ["call_recent.json", "call_since.json"]
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
