@@ -114,7 +114,9 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
 
         await reconcile.run(lookback_hours=96)
 
-        mock_fetch.assert_called_once_with(lookback_hours=96)
+        mock_fetch.assert_called_once_with(96)
+
+    @patch("dashboard_sync.reconcile.pipeline.process_call")
     @patch("dashboard_sync.reconcile.fetch_recent_calls")
     @patch("dashboard_sync.reconcile.config")
     async def test_run_returns_summary_and_reuses_injected_sheets(
