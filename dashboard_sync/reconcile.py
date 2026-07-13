@@ -4,7 +4,6 @@ de ingesta principal (poll), invocado tanto por el cron externo via el endpoint
 POST /webhooks/reconcile como a mano: python -m dashboard_sync.reconcile"""
 
 import asyncio
-import os
 import time
 
 import requests
@@ -71,13 +70,6 @@ def filter_unsynced(calls: list, already_synced_ids: set) -> list:
     return [call for call in calls if call.get("call_id") and call["call_id"] not in already_synced_ids]
 
 
-async def run(lookback_hours: int = DEFAULT_LOOKBACK_HOURS):
-    sheets = sheets_client.connect(
-        sheet_id=config.GOOGLE_SHEET_ID,
-        service_account_info=config.google_service_account_info(),
-    )
-
-    calls = fetch_recent_calls(lookback_hours=lookback_hours)
 async def run(lookback_hours=None, sheets=None) -> dict:
     """Corre una pasada de reconciliacion y devuelve un resumen contable.
     `sheets` se puede inyectar para reutilizar el cliente singleton del endpoint
@@ -113,5 +105,4 @@ async def run(lookback_hours=None, sheets=None) -> dict:
 
 
 if __name__ == "__main__":
-    hours = int(os.environ.get("RECONCILE_LOOKBACK_HOURS", DEFAULT_LOOKBACK_HOURS))
-    asyncio.run(run(lookback_hours=hours))
+    asyncio.run(run())
