@@ -38,6 +38,7 @@ export function mapRowToCall(headers: string[], row: string[]): Call {
     failedTools: get("failed_tools") ? get("failed_tools").split(",") : [],
     summary: get("summary"),
     bookingEffectiveness: (get("booking_effectiveness") || "pending") as BookingEffectiveness,
+    bookingAction: get("booking_action"),
     recordingBlobUrl: get("recording_blob_url"),
     transcriptBlobUrl: get("transcript_blob_url"),
     syncedAt: get("synced_at")

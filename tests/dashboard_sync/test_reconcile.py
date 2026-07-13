@@ -115,6 +115,28 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         await reconcile.run(lookback_hours=96)
 
         mock_fetch.assert_called_once_with(lookback_hours=96)
+    @patch("dashboard_sync.reconcile.fetch_recent_calls")
+    @patch("dashboard_sync.reconcile.config")
+    async def test_run_returns_summary_and_reuses_injected_sheets(
+        self,
+        mock_config,
+        mock_fetch,
+        mock_process_call,
+    ):
+        from unittest.mock import AsyncMock
+        from dashboard_sync import reconcile
+
+        mock_config.BLOB_READ_WRITE_TOKEN = "blob-token"
+        mock_config.RECONCILE_LOOKBACK_HOURS = 3
+        mock_fetch.return_value = [{"call_id": "a"}, {"call_id": "b"}]
+        fake_sheets = MagicMock()
+        fake_sheets.get_existing_call_ids.return_value = ["a"]
+        mock_process_call.side_effect = AsyncMock()
+
+        summary = await reconcile.run(sheets=fake_sheets)
+
+        self.assertEqual(summary, {"scanned": 2, "pending": 1, "synced": 1, "errors": 0})
+        mock_process_call.assert_called_once()
 
 
 if __name__ == "__main__":

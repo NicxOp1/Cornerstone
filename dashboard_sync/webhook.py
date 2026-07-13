@@ -1,12 +1,14 @@
-"""FastAPI router for the dashboard_sync callSynced webhook."""
+"""FastAPI router for the dashboard_sync callSynced webhook y el endpoint de
+reconciliacion que dispara el cron externo."""
 
 from fastapi import APIRouter, HTTPException, Request
 
-from dashboard_sync import config, pipeline, sheets_client
+from dashboard_sync import config, pipeline, reconcile, sheets_client
 
 router = APIRouter()
 
 _sheets_singleton = None
+_reconcile_running = False
 
 
 def _get_sheets_client():
@@ -45,3 +47,26 @@ async def call_synced(request: Request, token: str = ""):
         return {"status": "error", "call_id": call_id}
 
     return {"status": "ok", "call_id": call_id}
+
+
+@router.post("/webhooks/reconcile")
+async def reconcile_endpoint(token: str = ""):
+    """Disparado por el scheduler externo (cron-job.org / GitHub Actions) cada
+    ~10 min. Poll de Retell -> upsert idempotente en la Sheet. Mismo token
+    compartido que callSynced. Devuelve el resumen de la corrida."""
+    if not config.DASHBOARD_SYNC_TOKEN or token != config.DASHBOARD_SYNC_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    global _reconcile_running
+    if _reconcile_running:
+        # Una corrida anterior sigue en curso (el pipeline es idempotente, pero
+        # no tiene sentido apilar pasadas). El proximo ping del cron reintenta.
+        return {"status": "busy"}
+
+    _reconcile_running = True
+    try:
+        summary = await reconcile.run(sheets=_get_sheets_client())
+    finally:
+        _reconcile_running = False
+
+    return {"status": "ok", **summary}

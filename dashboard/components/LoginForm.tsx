@@ -25,7 +25,7 @@ export function LoginForm() {
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      setError(data.error ?? "No se pudo iniciar sesion.");
+      setError(data.error ?? "Unable to sign in.");
       return;
     }
 
@@ -34,10 +34,10 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4">
+    <form onSubmit={handleSubmit} className="mt-8 w-full space-y-5">
       <div>
-        <label htmlFor="username" className="mb-1 block text-sm font-medium">
-          Usuario
+        <label htmlFor="username" className="mb-2 block text-sm font-medium text-ink">
+          Username
         </label>
         <input
           id="username"
@@ -46,13 +46,13 @@ export function LoginForm() {
           autoComplete="username"
           value={username}
           onChange={(event) => setUsername(event.target.value)}
-          className="h-11 w-full rounded-lg border border-gray-300 px-3 text-base"
+          className="h-12 w-full rounded-2xl border border-line bg-ground px-4 text-base text-ink outline-none transition placeholder:text-ink-soft focus:border-navy/20"
           required
         />
       </div>
       <div>
-        <label htmlFor="password" className="mb-1 block text-sm font-medium">
-          Contrasena
+        <label htmlFor="password" className="mb-2 block text-sm font-medium text-ink">
+          Password
         </label>
         <input
           id="password"
@@ -61,17 +61,17 @@ export function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-11 w-full rounded-lg border border-gray-300 px-3 text-base"
+          className="h-12 w-full rounded-2xl border border-line bg-ground px-4 text-base text-ink outline-none transition focus:border-navy/20"
           required
         />
       </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="text-sm text-bad">{error}</p> : null}
       <button
         type="submit"
         disabled={loading}
-        className="h-11 w-full rounded-lg bg-cornerstone-navy font-semibold text-cornerstone-yellow disabled:opacity-60"
+        className="h-12 w-full rounded-2xl bg-navy font-semibold text-white transition hover:bg-navy-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {loading ? "Ingresando..." : "Ingresar"}
+        {loading ? "Signing in..." : "Sign in"}
       </button>
     </form>
   );

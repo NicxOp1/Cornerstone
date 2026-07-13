@@ -27,6 +27,8 @@ describe("POST /api/login", () => {
   beforeEach(() => {
     vi.stubEnv("DASHBOARD_USERNAME", "john");
     vi.stubEnv("DASHBOARD_PASSWORD", "hashed-password");
+    vi.stubEnv("DASHBOARD_SECONDARY_USERNAME", "");
+    vi.stubEnv("DASHBOARD_SECONDARY_PASSWORD", "");
   });
 
   afterEach(() => {
@@ -51,6 +53,22 @@ describe("POST /api/login", () => {
     const response = await POST(buildRequest({ username: "otro", password: "cualquiera" }));
 
     expect(response.status).toBe(401);
+  });
+
+  it("credenciales secundarias correctas devuelven 200 y setean la cookie", async () => {
+    vi.stubEnv("DASHBOARD_SECONDARY_USERNAME", "secondary-user");
+    vi.stubEnv("DASHBOARD_SECONDARY_PASSWORD", "secondary-hash");
+    const { verifyPassword } = await import("@/lib/auth/password");
+    vi.mocked(verifyPassword).mockResolvedValue(true);
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      buildRequest({ username: "secondary-user", password: "secondary-pass" })
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.cookies.get("dashboard_session")?.value).toBe("fake-token");
+    expect(verifyPassword).toHaveBeenCalledWith("secondary-pass", "secondary-hash");
   });
 
   it("contrasena incorrecta devuelve 401 y registra el intento fallido", async () => {
