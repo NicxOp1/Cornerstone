@@ -25,6 +25,7 @@ export interface Call {
   failedTools: string[];
   summary: string;
   bookingEffectiveness: BookingEffectiveness;
+  bookingAction: string;
   recordingBlobUrl: string;
   transcriptBlobUrl: string;
   syncedAt: string;

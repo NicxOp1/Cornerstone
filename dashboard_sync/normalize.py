@@ -13,6 +13,25 @@ SPAM_MAX_DURATION_S = 30
 SPAM_MAX_USER_WORDS = 5
 STALL_SILENCE_THRESHOLD_S = 30
 
+# Mapea la tool de reserva exitosa a la accion que representa (para el tab Bookings).
+BOOKING_ACTION_MAP = {
+    "create_job": "schedule",
+    "reschedule_appointment": "reschedule",
+    "cancel_appointment": "cancel",
+    "create_customer": "new_customer",
+    "create_location": "new_customer",
+}
+
+
+def _booking_actions(tool_calls):
+    actions = []
+    for tc in tool_calls:
+        if tc.get("success") is True:
+            action = BOOKING_ACTION_MAP.get(tc.get("name"))
+            if action and action not in actions:
+                actions.append(action)
+    return ",".join(actions)
+
 
 def _ms_to_eastern_day_and_time(ts_ms):
     if not ts_ms:
@@ -85,5 +104,6 @@ def extract(call: dict) -> dict:
         "is_spam": is_spam,
         "is_stalled": is_stalled,
         "failed_tools": failed_tools,
+        "booking_action": _booking_actions(tool_calls),
         "summary": call_analysis.get("call_summary", ""),
     }

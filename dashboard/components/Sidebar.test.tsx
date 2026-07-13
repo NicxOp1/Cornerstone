@@ -32,10 +32,10 @@ vi.mock("next/link", () => ({
 }));
 
 describe("Sidebar", () => {
-  it("muestra los 7 items de navegacion", () => {
-    render(<Sidebar isOpen={true} onClose={() => {}} />);
+  it("muestra los 6 items de navegacion final", () => {
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
-    ["Resumen", "Volumen", "Reservas", "Conversacion", "Costo", "Llamadas", "Mensajes"].forEach(
+    ["Overview", "Bookings", "Conversation", "Cost", "Calls", "Messages"].forEach(
       (label) => {
         expect(screen.getByText(label)).toBeInTheDocument();
       }
@@ -44,29 +44,29 @@ describe("Sidebar", () => {
 
   it("llama a onClose al hacer click en un link", () => {
     const onClose = vi.fn();
-    render(<Sidebar isOpen={true} onClose={onClose} />);
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={onClose} />);
 
-    fireEvent.click(screen.getByText("Llamadas"));
+    fireEvent.click(screen.getByText("Calls"));
 
     expect(onClose).toHaveBeenCalled();
   });
 
   it("cuando isOpen es false no tiene la clase de overlay visible", () => {
-    render(<Sidebar isOpen={false} onClose={() => {}} />);
+    render(<Sidebar isOpen={false} isCollapsed={false} onClose={() => {}} />);
 
     const nav = screen.getByRole("navigation");
 
-    expect(nav.className).toContain("-translate-x-full");
+    expect(nav.className).toContain("-translate-x-[calc(100%+1rem)]");
   });
 
-  it("muestra el badge de no leidos junto a Mensajes cuando unreadCount > 0", () => {
-    render(<Sidebar isOpen={true} onClose={() => {}} unreadCount={3} />);
+  it("muestra el badge de no leidos junto a Messages cuando unreadCount > 0", () => {
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} unreadCount={3} />);
 
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
   it("no muestra badge cuando unreadCount es 0 o no se pasa", () => {
-    render(<Sidebar isOpen={true} onClose={() => {}} />);
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
     expect(screen.queryByText("0")).not.toBeInTheDocument();
   });

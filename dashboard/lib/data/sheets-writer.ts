@@ -1,4 +1,8 @@
 import { google, sheets_v4 } from "googleapis";
+import {
+  getGoogleSheetsConfig,
+  warnAboutMissingGoogleSheetsConfig
+} from "@/lib/data/google-config";
 
 export interface SheetsWriteClient {
   getHeaders(tab: string): Promise<string[]>;
@@ -12,6 +16,88 @@ export interface SheetsWriteClient {
     row: Record<string, string>
   ): Promise<void>;
   getAllRows(tab: string): Promise<{ headers: string[]; rows: string[][] }>;
+}
+
+export class InMemorySheetsWriteClient implements SheetsWriteClient {
+  private tabs = new Map<string, string[][]>();
+
+  constructor() {
+    this.ensureTab("Feedback", ["id", "call_id", "timestamp", "comment", "status", "reply", "replied_at"]);
+    this.ensureTab("Messages", ["id", "timestamp", "sender", "text", "read_by_equipo", "read_by_john"]);
+  }
+
+  private ensureTab(tab: string, headers: string[] = []): string[][] {
+    const existing = this.tabs.get(tab);
+
+    if (existing) {
+      return existing;
+    }
+
+    const seeded = [headers];
+    this.tabs.set(tab, seeded);
+    return seeded;
+  }
+
+  async getHeaders(tab: string): Promise<string[]> {
+    return this.ensureTab(tab)[0] ?? [];
+  }
+
+  async getRow(tab: string, rowNumber: number): Promise<string[]> {
+    return this.ensureTab(tab)[rowNumber - 1] ?? [];
+  }
+
+  async findRowNumberById(tab: string, idColumnName: string, id: string): Promise<number | null> {
+    const data = this.ensureTab(tab);
+    const idColumnIndex = data[0].indexOf(idColumnName);
+
+    if (idColumnIndex === -1) {
+      return null;
+    }
+
+    for (let index = 1; index < data.length; index += 1) {
+      if (data[index][idColumnIndex] === id) {
+        return index + 1;
+      }
+    }
+
+    return null;
+  }
+
+  async appendRow(tab: string, headers: string[], row: Record<string, string>): Promise<void> {
+    const data = this.ensureTab(tab, headers);
+    const effectiveHeaders = data[0].length > 0 ? data[0] : headers;
+
+    if (data[0].length === 0) {
+      data[0] = effectiveHeaders;
+    }
+
+    data.push(effectiveHeaders.map((header) => row[header] ?? ""));
+  }
+
+  async updateRow(
+    tab: string,
+    rowNumber: number,
+    headers: string[],
+    row: Record<string, string>
+  ): Promise<void> {
+    const data = this.ensureTab(tab, headers);
+    const effectiveHeaders = data[0].length > 0 ? data[0] : headers;
+
+    if (data[0].length === 0) {
+      data[0] = effectiveHeaders;
+    }
+
+    data[rowNumber - 1] = effectiveHeaders.map((header) => row[header] ?? "");
+  }
+
+  async getAllRows(tab: string): Promise<{ headers: string[]; rows: string[][] }> {
+    const data = this.ensureTab(tab);
+
+    return {
+      headers: data[0] ?? [],
+      rows: data.slice(1).filter((row) => row.length > 0 && row[0])
+    };
+  }
 }
 
 export class GoogleSheetsWriteClient implements SheetsWriteClient {
@@ -103,14 +189,22 @@ export class GoogleSheetsWriteClient implements SheetsWriteClient {
   }
 }
 
-export function buildWriteClient(): GoogleSheetsWriteClient {
-  const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "{}");
+const fallbackWriteClient = new InMemorySheetsWriteClient();
+
+export function buildWriteClient(): SheetsWriteClient {
+  const config = getGoogleSheetsConfig();
+
+  if (!config) {
+    warnAboutMissingGoogleSheetsConfig("buildWriteClient");
+    return fallbackWriteClient;
+  }
+
   const auth = new google.auth.JWT({
-    email: serviceAccount.client_email,
-    key: serviceAccount.private_key,
+    email: config.serviceAccountEmail,
+    key: config.privateKey,
     scopes: ["https://www.googleapis.com/auth/spreadsheets"]
   });
   const sheets = google.sheets({ version: "v4", auth });
 
-  return new GoogleSheetsWriteClient(sheets, process.env.GOOGLE_SHEET_ID ?? "");
+  return new GoogleSheetsWriteClient(sheets, config.spreadsheetId);
 }
