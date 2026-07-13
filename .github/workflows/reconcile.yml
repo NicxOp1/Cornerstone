@@ -1,0 +1,13 @@
+name: Harmony reconcile
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping-reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -sf -X POST "https://cornerstone-d1ln.onrender.com/webhooks/reconcile?token=${{ secrets.DASHBOARD_SYNC_TOKEN }}"
