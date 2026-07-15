@@ -52,6 +52,10 @@ class ExtractNormalCallTests(unittest.TestCase):
         result = self.normalize.extract(self.call)
         self.assertEqual(result["failed_tools"], [])
 
+    def test_tools_used_lists_successful_tool(self):
+        result = self.normalize.extract(self.call)
+        self.assertEqual(result["tools_used"], ["create_job:ok"])
+
 
 class ExtractSpamCallTests(unittest.TestCase):
     def test_flagged_as_spam(self):
@@ -79,6 +83,10 @@ class ExtractFailedToolCallTests(unittest.TestCase):
         result = self.normalize.extract(self.call)
         self.assertEqual(result["failed_tools"], ["create_job"])
 
+    def test_tools_used_marks_failure(self):
+        result = self.normalize.extract(self.call)
+        self.assertEqual(result["tools_used"], ["check_availability:ok", "create_job:fail"])
+
     def test_flagged_as_stalled_due_to_trailing_silence(self):
         result = self.normalize.extract(self.call)
         self.assertTrue(result["is_stalled"])
@@ -99,6 +107,24 @@ class ExtractMalformedToolCallTests(unittest.TestCase):
         }
         result = normalize.extract(call)
         self.assertEqual(result["failed_tools"], ["create_job"])
+
+
+class ExtractToolsUsedTests(unittest.TestCase):
+    def test_silent_logging_tools_excluded(self):
+        from dashboard_sync import normalize
+        call = {
+            "tool_calls": [
+                {"name": "store_call_data", "success": True},
+                {"name": "find_customer", "success": True},
+            ],
+        }
+        result = normalize.extract(call)
+        self.assertEqual(result["tools_used"], ["find_customer:ok"])
+
+    def test_no_tool_calls_gives_empty_list(self):
+        from dashboard_sync import normalize
+        result = normalize.extract({})
+        self.assertEqual(result["tools_used"], [])
 
 
 if __name__ == "__main__":

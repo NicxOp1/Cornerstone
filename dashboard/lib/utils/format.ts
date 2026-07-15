@@ -55,6 +55,14 @@ export function formatRangeEyebrow(startDay: string, endDay: string): string {
   return `LAST ${span} DAYS / ${startLabel} - ${endLabel}`;
 }
 
+export function formatToolName(name: string): string {
+  return name
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 export function formatDuration(seconds: number): string {
   const safeSeconds = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
   const minutes = Math.floor(safeSeconds / 60);
