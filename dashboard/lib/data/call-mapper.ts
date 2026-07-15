@@ -1,4 +1,4 @@
-import type { BookingEffectiveness, Call } from "@/lib/types/call";
+import type { BookingEffectiveness, Call, ToolUsage } from "@/lib/types/call";
 
 function parseBoolCell(value: string): boolean | null {
   if (value === "True" || value === "true") return true;
@@ -9,6 +9,17 @@ function parseBoolCell(value: string): boolean | null {
 function parseNumberCell(value: string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && value !== "" ? parsed : 0;
+}
+
+function parseToolsUsed(value: string): ToolUsage[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .filter(Boolean)
+    .map((entry) => {
+      const [name, status] = entry.split(":");
+      return { name, success: status === "ok" };
+    });
 }
 
 export function mapRowToCall(headers: string[], row: string[]): Call {
@@ -36,6 +47,7 @@ export function mapRowToCall(headers: string[], row: string[]): Call {
     isSpam: parseBoolCell(get("is_spam")) ?? false,
     isStalled: parseBoolCell(get("is_stalled")) ?? false,
     failedTools: get("failed_tools") ? get("failed_tools").split(",") : [],
+    toolsUsed: parseToolsUsed(get("tools_used")),
     summary: get("summary"),
     bookingEffectiveness: (get("booking_effectiveness") || "pending") as BookingEffectiveness,
     bookingAction: get("booking_action"),

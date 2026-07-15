@@ -7,6 +7,9 @@ import asyncio
 import time
 
 import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from dashboard_sync import config, pipeline, sheets_client
 
@@ -82,14 +85,15 @@ async def run(lookback_hours=None, sheets=None) -> dict:
     calls = fetch_recent_calls(lookback_hours)
     already_synced = set(sheets.get_existing_call_ids())
     pending = filter_unsynced(calls, already_synced)
+    batch = pending[: config.RECONCILE_MAX_PER_RUN]
     print(
         f"[reconcile] {len(pending)} llamadas sin sincronizar de {len(calls)} "
-        f"en las ultimas {lookback_hours}h"
+        f"en las ultimas {lookback_hours}h (procesando {len(batch)} esta corrida)"
     )
 
     synced = 0
     errors = 0
-    for raw_call in pending:
+    for raw_call in batch:
         try:
             await pipeline.process_call(raw_call, sheets, config.BLOB_READ_WRITE_TOKEN)
             synced += 1
@@ -98,7 +102,7 @@ async def run(lookback_hours=None, sheets=None) -> dict:
             errors += 1
             print(f"[reconcile] ERROR {raw_call.get('call_id')}: {exc}")
 
-    return {"scanned": len(calls), "pending": len(pending), "synced": synced, "errors": errors}
+    return {"scanned": len(calls), "pending": len(pending), "synced": synced, "errors": errors, "capped": len(pending) - len(batch)}
 
 
 if __name__ == "__main__":

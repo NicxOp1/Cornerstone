@@ -22,6 +22,21 @@ BOOKING_ACTION_MAP = {
     "create_location": "new_customer",
 }
 
+# Tools de logging interno (speak_after_execution=false, ver CLAUDE.md) -- no
+# aportan nada al dashboard, se excluyen de tools_used.
+SILENT_TOOLS = {"store_call_data", "update_call_field", "get_call_data", "clear_call_data", "current_time"}
+
+
+def _tools_used(tool_calls):
+    used = []
+    for tc in tool_calls:
+        name = tc.get("name")
+        if not name or name in SILENT_TOOLS:
+            continue
+        status = "ok" if tc.get("success") is True else "fail"
+        used.append(f"{name}:{status}")
+    return used
+
 
 def _booking_actions(tool_calls):
     actions = []
@@ -104,6 +119,7 @@ def extract(call: dict) -> dict:
         "is_spam": is_spam,
         "is_stalled": is_stalled,
         "failed_tools": failed_tools,
+        "tools_used": _tools_used(tool_calls),
         "booking_action": _booking_actions(tool_calls),
         "summary": call_analysis.get("call_summary", ""),
     }

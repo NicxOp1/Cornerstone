@@ -92,6 +92,31 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(called_call["call_id"], "b")
 
     @patch("dashboard_sync.reconcile.pipeline.process_call")
+    @patch("dashboard_sync.reconcile.sheets_client.connect")
+    @patch("dashboard_sync.reconcile.fetch_recent_calls")
+    @patch("dashboard_sync.reconcile.config")
+    async def test_passes_custom_lookback_hours_to_fetch(
+        self,
+        mock_config,
+        mock_fetch,
+        mock_connect,
+        mock_process_call,
+    ):
+        from dashboard_sync import reconcile
+
+        mock_config.GOOGLE_SHEET_ID = "sheet-1"
+        mock_config.BLOB_READ_WRITE_TOKEN = "blob-token"
+        mock_config.google_service_account_info = lambda: {}
+        mock_fetch.return_value = []
+        fake_sheets = MagicMock()
+        fake_sheets.get_existing_call_ids.return_value = []
+        mock_connect.return_value = fake_sheets
+
+        await reconcile.run(lookback_hours=96)
+
+        mock_fetch.assert_called_once_with(96)
+
+    @patch("dashboard_sync.reconcile.pipeline.process_call")
     @patch("dashboard_sync.reconcile.fetch_recent_calls")
     @patch("dashboard_sync.reconcile.config")
     async def test_run_returns_summary_and_reuses_injected_sheets(
@@ -112,8 +137,38 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
 
         summary = await reconcile.run(sheets=fake_sheets)
 
-        self.assertEqual(summary, {"scanned": 2, "pending": 1, "synced": 1, "errors": 0})
+        self.assertEqual(summary, {"scanned": 2, "pending": 1, "synced": 1, "errors": 0, "capped": 0})
         mock_process_call.assert_called_once()
+
+    @patch("dashboard_sync.reconcile.pipeline.process_call")
+    @patch("dashboard_sync.reconcile.fetch_recent_calls")
+    @patch("dashboard_sync.reconcile.config")
+    async def test_caps_calls_processed_per_run(
+        self,
+        mock_config,
+        mock_fetch,
+        mock_process_call,
+    ):
+        # Si hay mas pendientes que RECONCILE_MAX_PER_RUN, esta corrida solo
+        # procesa el tope -- el resto queda para la proxima (el pipeline es
+        # idempotente, así que no hay riesgo de perderlas). Esto es lo que
+        # evita que una racha de llamadas sin sincronizar haga que la corrida
+        # tarde tanto que el proxy de Render la corte (ver config.py).
+        from unittest.mock import AsyncMock
+        from dashboard_sync import reconcile
+
+        mock_config.BLOB_READ_WRITE_TOKEN = "blob-token"
+        mock_config.RECONCILE_LOOKBACK_HOURS = 3
+        mock_config.RECONCILE_MAX_PER_RUN = 2
+        mock_fetch.return_value = [{"call_id": c} for c in ["a", "b", "c", "d"]]
+        fake_sheets = MagicMock()
+        fake_sheets.get_existing_call_ids.return_value = []
+        mock_process_call.side_effect = AsyncMock()
+
+        summary = await reconcile.run(sheets=fake_sheets)
+
+        self.assertEqual(summary, {"scanned": 4, "pending": 4, "synced": 2, "errors": 0, "capped": 2})
+        self.assertEqual(mock_process_call.call_count, 2)
 
 
 if __name__ == "__main__":
