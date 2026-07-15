@@ -15,6 +15,27 @@ from dashboard_sync import config, pipeline, sheets_client
 
 RETELL_LIST_CALLS_URL = "https://api.retellai.com/v2/list-calls"
 
+# Retell tarda unos segundos a un par de minutos en terminar el post-call
+# analysis (summary, sentiment, etc.) despues de que la llamada termina. Si
+# reconcile sincroniza antes de eso, el call_id queda "synced" con esos
+# campos vacios para siempre -- nadie lo vuelve a mirar. Mejor esperar una
+# corrida mas (cron cada 15 min) en vez de congelar una fila incompleta.
+ANALYSIS_GRACE_S = 600
+
+
+def _analysis_ready(raw_call: dict) -> bool:
+    return bool((raw_call.get("call_analysis") or {}).get("call_summary"))
+
+
+def _should_defer(raw_call: dict) -> bool:
+    if _analysis_ready(raw_call):
+        return False
+    end_ms = raw_call.get("end_timestamp")
+    if not end_ms:
+        return False
+    age_s = (time.time() * 1000 - end_ms) / 1000
+    return age_s < ANALYSIS_GRACE_S
+
 
 def fetch_recent_calls(lookback_hours=None) -> list:
     if lookback_hours is None:
@@ -85,10 +106,13 @@ async def run(lookback_hours=None, sheets=None) -> dict:
     calls = fetch_recent_calls(lookback_hours)
     already_synced = set(sheets.get_existing_call_ids())
     pending = filter_unsynced(calls, already_synced)
-    batch = pending[: config.RECONCILE_MAX_PER_RUN]
+    ready = [c for c in pending if not _should_defer(c)]
+    deferred = len(pending) - len(ready)
+    batch = ready[: config.RECONCILE_MAX_PER_RUN]
     print(
         f"[reconcile] {len(pending)} llamadas sin sincronizar de {len(calls)} "
-        f"en las ultimas {lookback_hours}h (procesando {len(batch)} esta corrida)"
+        f"en las ultimas {lookback_hours}h ({deferred} con analisis pendiente, "
+        f"procesando {len(batch)} esta corrida)"
     )
 
     synced = 0
@@ -102,7 +126,14 @@ async def run(lookback_hours=None, sheets=None) -> dict:
             errors += 1
             print(f"[reconcile] ERROR {raw_call.get('call_id')}: {exc}")
 
-    return {"scanned": len(calls), "pending": len(pending), "synced": synced, "errors": errors, "capped": len(pending) - len(batch)}
+    return {
+        "scanned": len(calls),
+        "pending": len(pending),
+        "synced": synced,
+        "errors": errors,
+        "deferred": deferred,
+        "capped": len(ready) - len(batch),
+    }
 
 
 if __name__ == "__main__":
