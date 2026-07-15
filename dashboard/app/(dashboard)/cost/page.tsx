@@ -1,7 +1,7 @@
 import { AreaTrend } from "@/components/charts/AreaTrend";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KpiCard } from "@/components/ui/KpiCard";
+import { KpiDeck } from "@/components/ui/KpiDeck";
 import { TabHeader } from "@/components/ui/TabHeader";
 import { getCachedCalls } from "@/lib/data/cached-repository";
 import { dayBuckets, kpiDelta, previousWindow } from "@/lib/kpi";
@@ -37,6 +37,8 @@ export default async function CostPage({ searchParams }: { searchParams: { range
   const costPerMinDelta = kpiDelta(calls, previous, averageCostPerMinuteCents, false);
   const costPerCallDelta = kpiDelta(calls, previous, costPerCallCents, false);
 
+  const trendDays = buckets.map((bucket) => bucket[0]?.day ?? "");
+
   const kpis = [
     {
       label: "Cost per minute",
@@ -45,7 +47,9 @@ export default async function CostPage({ searchParams }: { searchParams: { range
       deltaLabel: costPerMinDelta.label,
       deltaTone: costPerMinDelta.tone,
       trend: buckets.map((bucket) => averageCostPerMinuteCents(bucket)),
-      sparkTone: "ink" as const
+      sparkTone: "ink" as const,
+      icon: <CostIcon />,
+      chartFormat: "currency" as const
     },
     {
       label: "Cost per call",
@@ -54,7 +58,9 @@ export default async function CostPage({ searchParams }: { searchParams: { range
       deltaLabel: costPerCallDelta.label,
       deltaTone: costPerCallDelta.tone,
       trend: buckets.map((bucket) => costPerCallCents(bucket)),
-      sparkTone: "ink" as const
+      sparkTone: "ink" as const,
+      icon: <CostIcon />,
+      chartFormat: "currency" as const
     },
     {
       label: "Total spend",
@@ -63,7 +69,9 @@ export default async function CostPage({ searchParams }: { searchParams: { range
       deltaLabel: "This window",
       deltaTone: "neutral" as const,
       trend: buckets.map((bucket) => sumCostCents(bucket)),
-      sparkTone: "accent" as const
+      sparkTone: "accent" as const,
+      icon: <CostIcon />,
+      chartFormat: "currency" as const
     },
     {
       label: "Projected / month",
@@ -72,7 +80,9 @@ export default async function CostPage({ searchParams }: { searchParams: { range
       deltaLabel: "Estimate",
       deltaTone: "neutral" as const,
       trend: buckets.map((bucket) => sumCostCents(bucket)),
-      sparkTone: "accent" as const
+      sparkTone: "accent" as const,
+      icon: <CostIcon />,
+      chartFormat: "currency" as const
     }
   ];
 
@@ -92,11 +102,7 @@ export default async function CostPage({ searchParams }: { searchParams: { range
         />
       ) : (
         <>
-          <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-            {kpis.map((kpi) => (
-              <KpiCard key={kpi.label} {...kpi} icon={<CostIcon />} />
-            ))}
-          </section>
+          <KpiDeck items={kpis} trendDays={trendDays} gridClassName="xl:grid-cols-4" />
 
           <Card className="space-y-5">
             <div>

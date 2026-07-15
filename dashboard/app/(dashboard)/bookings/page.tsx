@@ -3,7 +3,7 @@ import { Bars } from "@/components/charts/Bars";
 import { FunnelBars } from "@/components/charts/FunnelBars";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { KpiCard } from "@/components/ui/KpiCard";
+import { KpiDeck } from "@/components/ui/KpiDeck";
 import { StatusChip } from "@/components/ui/StatusChip";
 import { TabHeader } from "@/components/ui/TabHeader";
 import { getCachedCalls } from "@/lib/data/cached-repository";
@@ -59,6 +59,8 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
 
   const confirmedDelta = kpiDelta(calls, previous, (entries) => bookingFunnel(entries).confirmed, true);
 
+  const trendDays = buckets.map((bucket) => bucket[0]?.day ?? "");
+
   const kpis = [
     {
       label: "Bookings confirmed",
@@ -67,7 +69,9 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
       deltaLabel: confirmedDelta.label,
       deltaTone: confirmedDelta.tone,
       trend: buckets.map((bucket) => bucket.filter((call) => call.bookingEffectiveness === "confirmed").length),
-      sparkTone: "good" as const
+      sparkTone: "good" as const,
+      icon: <BookingIcon />,
+      chartFormat: "number" as const
     },
     {
       label: "Booking rate",
@@ -76,7 +80,9 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
       deltaLabel: "Of valid calls",
       deltaTone: "neutral" as const,
       trend: buckets.map((bucket) => bookingFunnel(bucket).confirmed),
-      sparkTone: "accent" as const
+      sparkTone: "accent" as const,
+      icon: <BookingIcon />,
+      chartFormat: "number" as const
     },
     {
       label: "Avg. bookings / day",
@@ -85,7 +91,9 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
       deltaLabel: "This window",
       deltaTone: "neutral" as const,
       trend: buckets.map((bucket) => bookingFunnel(bucket).confirmed),
-      sparkTone: "ink" as const
+      sparkTone: "ink" as const,
+      icon: <BookingIcon />,
+      chartFormat: "number" as const
     },
     {
       label: "Busiest action",
@@ -94,7 +102,9 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
       deltaLabel: "Most frequent",
       deltaTone: "neutral" as const,
       trend: buckets.map((bucket) => bookingFunnel(bucket).confirmed),
-      sparkTone: "accent" as const
+      sparkTone: "accent" as const,
+      icon: <BookingIcon />,
+      chartFormat: "number" as const
     }
   ];
 
@@ -114,11 +124,7 @@ export default async function BookingsPage({ searchParams }: { searchParams: { r
         />
       ) : (
         <>
-          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {kpis.map((kpi) => (
-              <KpiCard key={kpi.label} {...kpi} icon={<BookingIcon />} />
-            ))}
-          </section>
+          <KpiDeck items={kpis} trendDays={trendDays} />
 
           <Card className="space-y-6">
             <div>

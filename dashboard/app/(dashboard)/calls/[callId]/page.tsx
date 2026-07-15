@@ -5,15 +5,11 @@ import { WaveformPlayer } from "@/components/WaveformPlayer";
 import { Card } from "@/components/ui/Card";
 import { StatusChip, bookingLabel, bookingTone, sentimentTone } from "@/components/ui/StatusChip";
 import { getCachedCallById, getCachedFeedbackForCall } from "@/lib/data/cached-repository";
+import { extractTranscriptTurns, fetchRetellCall, type TranscriptTurn } from "@/lib/retell-call";
 import type { Call } from "@/lib/types/call";
 import { formatDuration } from "@/lib/utils/format";
 
 export const dynamic = "force-dynamic";
-
-interface TranscriptTurn {
-  role: "agent" | "user";
-  content: string;
-}
 
 async function loadTranscript(url: string): Promise<TranscriptTurn[]> {
   if (!url) {
@@ -38,6 +34,15 @@ async function loadTranscript(url: string): Promise<TranscriptTurn[]> {
           entry.content.trim().length > 0
       )
       .map((entry) => ({ role: entry.role, content: entry.content }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadTranscriptFallback(callId: string): Promise<TranscriptTurn[]> {
+  try {
+    const retellCall = await fetchRetellCall(callId);
+    return extractTranscriptTurns(retellCall);
   } catch {
     return [];
   }
@@ -71,7 +76,7 @@ export default async function CallDetailPage({ params }: { params: { callId: str
 
   const [feedback, transcript] = await Promise.all([
     getCachedFeedbackForCall(params.callId),
-    loadTranscript(call.transcriptBlobUrl)
+    call.transcriptBlobUrl ? loadTranscript(call.transcriptBlobUrl) : loadTranscriptFallback(params.callId)
   ]);
 
   const tint = heroTint(call);
@@ -102,7 +107,11 @@ export default async function CallDetailPage({ params }: { params: { callId: str
         </div>
       </header>
 
-      <WaveformPlayer recordingBlobUrl={call.recordingBlobUrl} seed={call.callId} durationS={call.durationS} />
+      <WaveformPlayer
+        recordingUrl={call.recordingBlobUrl || `/api/calls/${params.callId}/recording`}
+        seed={call.callId}
+        durationS={call.durationS}
+      />
 
       <section className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_1.1fr]">
         <Card className="space-y-5">

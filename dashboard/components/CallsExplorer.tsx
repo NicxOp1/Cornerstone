@@ -157,6 +157,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
                   <th className="px-5 py-3 font-semibold">Result</th>
                   <th className="px-5 py-3 font-semibold">Tools</th>
                   <th className="px-5 py-3 font-semibold">Summary</th>
+                  <th className="px-5 py-3 text-right font-semibold">Open</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line/70">
@@ -189,6 +190,21 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
                     <td className="max-w-[280px] px-5 py-3.5 text-ink-soft">
                       <Link href={`/calls/${call.callId}`} className="line-clamp-1 block">
                         {call.summary || "-"}
+                      </Link>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3.5 text-right">
+                      <Link
+                        href={`/calls/${call.callId}`}
+                        aria-label="Open call"
+                        className="inline-flex items-center gap-1.5 rounded-full border border-line/80 bg-muted/60 px-3.5 py-1.5 text-xs font-semibold text-ink-soft transition-colors hover:border-accent/30 hover:bg-accent/12 hover:text-accent group-hover:border-accent/30 group-hover:text-accent"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
+                          <path d="M9 6.5v11l9-5.5-9-5.5Z" />
+                        </svg>
+                        Open call
+                        <svg viewBox="0 0 24 24" className="h-3 w-3" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="m9 6 6 6-6 6" />
+                        </svg>
                       </Link>
                     </td>
                   </tr>

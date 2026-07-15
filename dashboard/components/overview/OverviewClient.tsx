@@ -9,14 +9,37 @@ import { StackedBars } from "@/components/charts/StackedBars";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { KpiCard } from "@/components/ui/KpiCard";
+import { Modal } from "@/components/ui/Modal";
 import { DateRangeSelector } from "@/components/ui/DateRangeSelector";
 import { SegmentToggle } from "@/components/ui/SegmentToggle";
 import type { RangeOption } from "@/lib/metrics";
+import { cn } from "@/lib/utils/cn";
 import { formatNumber } from "@/lib/utils/format";
 
 type DeltaTone = "bad" | "good" | "neutral";
+
+const deltaBadgeClasses: Record<DeltaTone, string> = {
+  bad: "border border-bad/20 bg-bad-soft text-bad",
+  good: "border border-good/20 bg-good-soft text-good",
+  neutral: "border border-white/6 bg-muted text-ink-soft"
+};
 type KpiIcon = "bookings" | "cost" | "duration" | "success";
 type SparkTone = "accent" | "bad" | "good" | "ink";
+type ChartFormat = "currency" | "duration" | "number" | "percent";
+
+const KPI_CHART_FORMAT: Record<KpiIcon, ChartFormat> = {
+  bookings: "number",
+  cost: "currency",
+  duration: "duration",
+  success: "percent"
+};
+
+const SPARK_STROKE_VAR: Record<SparkTone, string> = {
+  accent: "accent",
+  bad: "bad",
+  good: "good",
+  ink: "navy-2"
+};
 
 interface OverviewKpi {
   deltaLabel: string;
@@ -162,20 +185,31 @@ export function OverviewClient({
   totalCalls
 }: OverviewClientProps) {
   const [mode, setMode] = useState<"day" | "hour">("day");
+  const [activeKpi, setActiveKpi] = useState<number | null>(null);
   const greeting = useMemo(() => getGreeting(), []);
   const busiestWindow = useMemo(() => getBusiestWindow(activityHeatmap), [activityHeatmap]);
   const sentimentLeader = useMemo(() => getSentimentLeader(sentimentSegments), [sentimentSegments]);
 
+  const openKpi = activeKpi !== null ? kpis[activeKpi] : null;
+  const openKpiPoints =
+    openKpi?.trend.map((value, index) => ({
+      date: dailyTrend[index]?.date ?? String(index),
+      label: dailyTrend[index]?.label ?? "",
+      value
+    })) ?? [];
+
   return (
     <div className="space-y-6">
-      <header className="relative overflow-hidden rounded-[36px] border border-line/70 bg-[linear-gradient(180deg,rgba(8,11,21,0.98),rgba(18,24,43,0.94))] p-6 shadow-panel md:p-8">
+      <header className="animate-rise relative overflow-hidden rounded-[36px] border border-line/70 bg-[linear-gradient(180deg,rgba(8,11,21,0.98),rgba(18,24,43,0.94))] p-6 shadow-panel md:p-8">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(245,224,0,0.2),transparent_30%),radial-gradient(circle_at_left_center,rgba(81,92,191,0.18),transparent_22%)]" />
         <div className="relative flex flex-col gap-8 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl space-y-5">
             <span className="inline-flex rounded-full border border-accent/18 bg-accent/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-accent">
               {rangeLabel || "Live window"}
             </span>
-            <Logo className="h-14 md:h-16" />
+            <div className="flex justify-center py-1">
+              <Logo className="h-24 md:h-28" />
+            </div>
             <div>
               <h1 className="font-display text-4xl leading-none tracking-tight text-white md:text-6xl">
                 {greeting}
@@ -189,12 +223,6 @@ export function OverviewClient({
           <div className="flex flex-col gap-4 xl:items-end">
             <div className="flex flex-wrap items-center gap-3">
               <DateRangeSelector value={range} />
-              <button
-                type="button"
-                className="inline-flex h-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,rgba(245,224,0,1),rgba(255,244,134,0.98))] px-5 text-sm font-semibold text-accent-ink shadow-[0_16px_36px_rgba(245,224,0,0.18)] transition hover:brightness-[1.02]"
-              >
-                Export report
-              </button>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-3 xl:w-[420px]">
@@ -221,8 +249,11 @@ export function OverviewClient({
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-4">
-        {kpis.map((kpi) => (
+      <section
+        className="animate-rise grid grid-cols-1 gap-4 xl:grid-cols-4"
+        style={{ animationDelay: "80ms" }}
+      >
+        {kpis.map((kpi, index) => (
           <KpiCard
             key={kpi.label}
             label={kpi.label}
@@ -233,11 +264,12 @@ export function OverviewClient({
             trend={kpi.trend}
             sparkTone={kpi.sparkTone}
             icon={iconFor(kpi.icon)}
+            onShowChart={() => setActiveKpi(index)}
           />
         ))}
       </section>
 
-      <Card className="space-y-6">
+      <Card className="animate-rise space-y-6" style={{ animationDelay: "160ms" }}>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-accent/75">Activity</p>
@@ -269,7 +301,10 @@ export function OverviewClient({
         )}
       </Card>
 
-      <section className="grid gap-6 xl:grid-cols-[1.35fr_minmax(0,1fr)]">
+      <section
+        className="animate-rise grid gap-6 xl:grid-cols-[1.35fr_minmax(0,1fr)]"
+        style={{ animationDelay: "240ms" }}
+      >
         <Card className="space-y-5">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">Volume</p>
@@ -295,6 +330,49 @@ export function OverviewClient({
           <Donut segments={sentimentSegments} totalLabel="Calls" />
         </Card>
       </section>
+
+      <Modal
+        open={openKpi !== null}
+        onClose={() => setActiveKpi(null)}
+        title={openKpi?.label ?? ""}
+        subtitle={openKpi?.footnote}
+      >
+        {openKpi ? (
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-end gap-4">
+              <p className="text-4xl font-semibold tracking-tight text-ink tabular-nums">
+                {openKpi.value}
+              </p>
+              <span
+                className={cn(
+                  "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]",
+                  deltaBadgeClasses[openKpi.deltaTone]
+                )}
+              >
+                {openKpi.deltaLabel}
+              </span>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.24em] text-ink-soft">
+                Daily breakdown
+              </p>
+              {openKpiPoints.length === 0 ? (
+                <EmptyState
+                  title="No data in this window"
+                  description="Once calls are synced, the per-day breakdown will appear here."
+                />
+              ) : (
+                <AreaTrend
+                  data={openKpiPoints}
+                  format={KPI_CHART_FORMAT[openKpi.icon]}
+                  strokeVar={SPARK_STROKE_VAR[openKpi.sparkTone]}
+                  fillVar={SPARK_STROKE_VAR[openKpi.sparkTone]}
+                />
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }
