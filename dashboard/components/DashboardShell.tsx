@@ -8,6 +8,7 @@ interface DashboardShellProps {
   children: React.ReactNode;
   lastSyncedAt: string | null;
   unreadCount: number;
+  emergencyPendingCount: number;
   username: string;
 }
 
@@ -17,6 +18,7 @@ export function DashboardShell({
   children,
   lastSyncedAt,
   unreadCount,
+  emergencyPendingCount,
   username
 }: DashboardShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,6 +49,7 @@ export function DashboardShell({
         isCollapsed={sidebarCollapsed}
         onClose={() => setSidebarOpen(false)}
         unreadCount={unreadCount}
+        emergencyPendingCount={emergencyPendingCount}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar onMenuClick={handleMenuClick} lastSyncedAt={lastSyncedAt} username={username} />

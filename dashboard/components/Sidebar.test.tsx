@@ -32,10 +32,10 @@ vi.mock("next/link", () => ({
 }));
 
 describe("Sidebar", () => {
-  it("muestra los 6 items de navegacion final", () => {
+  it("muestra los 7 items de navegacion final", () => {
     render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
-    ["Overview", "Bookings", "Conversation", "Cost", "Calls", "Messages"].forEach(
+    ["Overview", "Bookings", "Callbacks", "Conversation", "Cost", "Calls", "Messages"].forEach(
       (label) => {
         expect(screen.getByText(label)).toBeInTheDocument();
       }
@@ -66,6 +66,18 @@ describe("Sidebar", () => {
   });
 
   it("no muestra badge cuando unreadCount es 0 o no se pasa", () => {
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
+
+    expect(screen.queryByText("0")).not.toBeInTheDocument();
+  });
+
+  it("muestra el badge de emergencias pendientes junto a Callbacks cuando emergencyPendingCount > 0", () => {
+    render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} emergencyPendingCount={2} />);
+
+    expect(screen.getByText("2")).toBeInTheDocument();
+  });
+
+  it("no muestra badge de emergencias cuando emergencyPendingCount es 0 o no se pasa", () => {
     render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
     expect(screen.queryByText("0")).not.toBeInTheDocument();
