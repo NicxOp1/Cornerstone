@@ -19,7 +19,10 @@ retell_analyzer.py
 retell_config_push.py
 retell_push_v7_draft.py
 retell_push_v8_draft.py
+retell_push_v10_draft.py
+retell_export_live.py
 build_agent_v7.py
 build_agent_v8.py
+build_agent_v10_ai_disclosure.py
 booking_auditor.py
 booking_audit_cache.json
