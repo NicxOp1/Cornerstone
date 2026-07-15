@@ -16,9 +16,8 @@ function parseServiceAccountJson(raw: string): Record<string, unknown> | null {
   }
 }
 
-export function getGoogleSheetsConfig(): GoogleSheetsConfig | null {
+function buildConfig(spreadsheetId: string): GoogleSheetsConfig | null {
   const serviceAccount = parseServiceAccountJson(process.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "");
-  const spreadsheetId = process.env.GOOGLE_SHEET_ID ?? "";
 
   if (!serviceAccount || !spreadsheetId.trim()) {
     return null;
@@ -33,11 +32,15 @@ export function getGoogleSheetsConfig(): GoogleSheetsConfig | null {
     return null;
   }
 
-  return {
-    serviceAccountEmail,
-    privateKey,
-    spreadsheetId
-  };
+  return { serviceAccountEmail, privateKey, spreadsheetId };
+}
+
+export function getGoogleSheetsConfig(): GoogleSheetsConfig | null {
+  return buildConfig(process.env.GOOGLE_SHEET_ID ?? "");
+}
+
+export function getCallbacksSheetConfig(): GoogleSheetsConfig | null {
+  return buildConfig(process.env.CALLBACKS_SHEET_ID ?? "");
 }
 
 let warned = false;
