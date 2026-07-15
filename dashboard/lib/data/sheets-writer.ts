@@ -1,5 +1,6 @@
 import { google, sheets_v4 } from "googleapis";
 import {
+  getCallbacksSheetConfig,
   getGoogleSheetsConfig,
   warnAboutMissingGoogleSheetsConfig
 } from "@/lib/data/google-config";
@@ -196,6 +197,24 @@ export function buildWriteClient(): SheetsWriteClient {
 
   if (!config) {
     warnAboutMissingGoogleSheetsConfig("buildWriteClient");
+    return fallbackWriteClient;
+  }
+
+  const auth = new google.auth.JWT({
+    email: config.serviceAccountEmail,
+    key: config.privateKey,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+  const sheets = google.sheets({ version: "v4", auth });
+
+  return new GoogleSheetsWriteClient(sheets, config.spreadsheetId);
+}
+
+export function buildCallbacksWriteClient(): SheetsWriteClient {
+  const config = getCallbacksSheetConfig();
+
+  if (!config) {
+    warnAboutMissingGoogleSheetsConfig("buildCallbacksWriteClient");
     return fallbackWriteClient;
   }
 
