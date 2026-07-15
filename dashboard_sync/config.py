@@ -14,6 +14,15 @@ RETELL_API_KEY: str = os.environ.get("RETELL_API_KEY", "")
 # las 48h del cron diario original. Overridable por env para el backfill/diario.
 RECONCILE_LOOKBACK_HOURS: int = int(os.environ.get("RECONCILE_LOOKBACK_HOURS", "3"))
 
+# Tope de llamadas pendientes procesadas por corrida. Cada llamada pendiente
+# puede pegarle a Retell (audio), Vercel Blob y ServiceTitan de forma
+# secuencial -- sin tope, una racha de llamadas sin sincronizar hace que la
+# corrida tarde varios minutos y el proxy de Render corte la conexion (esto
+# tumbo el cron de GitHub Actions el 2026-07-14: "All jobs have failed" en
+# ping-reconcile). El resto de las pendientes las agarra la proxima corrida
+# del cron (cada 15 min) -- el pipeline es idempotente, no se pierde nada.
+RECONCILE_MAX_PER_RUN: int = int(os.environ.get("RECONCILE_MAX_PER_RUN", "10"))
+
 # Default calculado desde la ubicacion del repo (…/nex ia voice/llamadas por dia),
 # no una ruta hardcodeada de una maquina puntual. Overridable por env.
 _DEFAULT_BACKFILL_DIR = Path(__file__).resolve().parents[3] / "llamadas por dia"
