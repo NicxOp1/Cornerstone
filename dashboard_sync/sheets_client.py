@@ -12,13 +12,21 @@ class SheetsClient:
         self._worksheet = worksheet
         self._cache_ttl_s = cache_ttl_s
         self._headers = None
+        self._headers_loaded_at = 0.0
         self._index: dict = {}          # {call_id: numero_de_fila}
         self._row_count = 0
         self._index_loaded_at = 0.0
 
     def _headers_row(self):
-        if self._headers is None:
+        # Mismo TTL que el indice: si alguien agrega una columna a mano en la
+        # sheet, un proceso vivo hace mucho (Render no reinicia solo) tiene
+        # que enterarse sin necesitar un redeploy. Sin esto, upsert_call_row
+        # sigue escribiendo filas del ancho viejo para siempre y las columnas
+        # nuevas quedan en blanco en silencio.
+        stale = (time.time() - self._headers_loaded_at) >= self._cache_ttl_s
+        if self._headers is None or stale:
             self._headers = self._worksheet.row_values(1)
+            self._headers_loaded_at = time.time()
         return self._headers
 
     @staticmethod
