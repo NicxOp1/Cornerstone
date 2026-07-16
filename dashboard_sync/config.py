@@ -9,10 +9,14 @@ GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON",
 BLOB_READ_WRITE_TOKEN: str = os.environ.get("BLOB_READ_WRITE_TOKEN", "")
 RETELL_API_KEY: str = os.environ.get("RETELL_API_KEY", "")
 
-# Ventana que mira el reconcile en cada corrida. Con el cron cada 10 min alcanza
-# con unas pocas horas de solape (resiliente ante corridas perdidas) en vez de
-# las 48h del cron diario original. Overridable por env para el backfill/diario.
-RECONCILE_LOOKBACK_HOURS: int = int(os.environ.get("RECONCILE_LOOKBACK_HOURS", "3"))
+# Ventana que mira el reconcile en cada corrida. Debe cubrir como minimo los
+# ultimos 15 dias para que las llamadas de julio no queden afuera del dashboard
+# ni del backfill de Tools. Se puede ampliar por env para un backfill mayor.
+MIN_RECONCILE_LOOKBACK_HOURS: int = 15 * 24
+RECONCILE_LOOKBACK_HOURS: int = max(
+    MIN_RECONCILE_LOOKBACK_HOURS,
+    int(os.environ.get("RECONCILE_LOOKBACK_HOURS", str(MIN_RECONCILE_LOOKBACK_HOURS))),
+)
 
 # Tope de llamadas pendientes procesadas por corrida. Cada llamada pendiente
 # puede pegarle a Retell (audio), Vercel Blob y ServiceTitan de forma

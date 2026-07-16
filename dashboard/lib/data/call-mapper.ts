@@ -11,37 +11,77 @@ function parseNumberCell(value: string): number {
   return Number.isFinite(parsed) && value !== "" ? parsed : 0;
 }
 
+const SUCCESS_STATUSES = new Set(["ok", "success", "succeeded", "true", "done"]);
+
+const HEADER_ALIASES: Record<string, string[]> = {
+  tools_used: ["tools", "tool_used", "tool_calls"]
+};
+
+function normalizeHeader(header: string): string {
+  return header.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+function parseToolEntry(entry: string): ToolUsage[] {
+  const cleaned = entry.trim().replace(/^[\[\]'\"]+|[\]'\"]+$/g, "");
+  if (!cleaned) return [];
+
+  const separator = cleaned.lastIndexOf(":");
+  const name = (separator >= 0 ? cleaned.slice(0, separator) : cleaned).trim();
+  const status = (separator >= 0 ? cleaned.slice(separator + 1) : "")
+    .trim()
+    .toLowerCase();
+
+  if (!name) return [];
+
+  return [{
+    name,
+    success: separator < 0 || SUCCESS_STATUSES.has(status)
+  }];
+}
+
 function parseToolsUsed(value: string): ToolUsage[] {
   const raw = value.trim();
   if (!raw) return [];
 
-  const entries = raw
-    .split(/[\n,]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.flatMap((entry) => {
+          if (typeof entry === "string") return parseToolEntry(entry);
+          if (!entry || typeof entry !== "object") return [];
 
-  return entries.flatMap((entry) => {
-    const separator = entry.lastIndexOf(":");
-    const name = (separator >= 0 ? entry.slice(0, separator) : entry).trim();
-    const status = (separator >= 0 ? entry.slice(separator + 1) : "").trim().toLowerCase();
+          const record = entry as { name?: unknown; status?: unknown; success?: unknown };
+          if (typeof record.name !== "string") return [];
 
-    if (!name) return [];
+          const status = typeof record.status === "string"
+            ? record.status
+            : record.success === true
+              ? "ok"
+              : record.success === false
+                ? "fail"
+                : "";
 
-    // Older rows sometimes contained only the tool name. They still represent
-    // a tool that was used, so keep them visible instead of painting them as a
-    // failure just because no status was persisted.
-    const success = separator < 0 || ["ok", "success", "succeeded", "true", "done"].includes(status);
-    return [{ name, success }];
-  });
+          return parseToolEntry(`${record.name}:${status}`);
+        });
+      }
+    } catch {
+      // Legacy Python list repr is handled by the delimiter fallback below.
+    }
+  }
+
+  const legacyList = raw.startsWith("[") && raw.endsWith("]") ? raw.slice(1, -1) : raw;
+  return legacyList.split(/[\n,;|]+/).flatMap(parseToolEntry);
 }
 
 export function mapRowToCall(headers: string[], row: string[]): Call {
-  const normalizedHeaders = headers.map((header) =>
-    header.trim().toLowerCase().replace(/[\s-]+/g, "_")
-  );
+  const normalizedHeaders = headers.map(normalizeHeader);
 
   const get = (name: string): string => {
-    const index = normalizedHeaders.indexOf(name);
+    const candidates = [name, ...(HEADER_ALIASES[name] ?? [])].map(normalizeHeader);
+    const index = candidates
+      .map((candidate) => normalizedHeaders.indexOf(candidate))
+      .find((candidateIndex) => candidateIndex >= 0) ?? -1;
     return index >= 0 && index < row.length ? row[index] : "";
   };
 

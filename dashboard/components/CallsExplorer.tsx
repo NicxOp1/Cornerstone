@@ -47,15 +47,18 @@ function ToolsCell({ tools }: { tools: ToolUsage[] }) {
   }
 
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex max-w-[360px] flex-wrap gap-1">
       {tools.map((tool, index) => (
         <span
           key={`${tool.name}-${index}`}
+          title={`${formatToolName(tool.name)}: ${tool.success ? "succeeded" : "failed"}`}
+          aria-label={`${formatToolName(tool.name)} ${tool.success ? "succeeded" : "failed"}`}
           className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
             tool.success ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
           )}
         >
+          <span aria-hidden="true">{tool.success ? "✓" : "×"}</span>
           {formatToolName(tool.name)}
         </span>
       ))}

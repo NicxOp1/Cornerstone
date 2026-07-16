@@ -23,5 +23,16 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.GOOGLE_SHEET_ID, "")
 
 
+class ReconcileLookbackConfigTests(unittest.TestCase):
+    def test_reconcile_lookback_covers_at_least_fifteen_days(self):
+        from dashboard_sync import config
+
+        self.assertEqual(config.MIN_RECONCILE_LOOKBACK_HOURS, 15 * 24)
+        self.assertGreaterEqual(
+            config.RECONCILE_LOOKBACK_HOURS,
+            config.MIN_RECONCILE_LOOKBACK_HOURS,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,14 @@ import time
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
+FIELD_ALIASES = {
+    "tools_used": {"tools_used", "tools", "tool_used", "tool_calls"},
+}
+
+
+def _normalize_header(value: str) -> str:
+    return value.strip().lower().replace(" ", "_").replace("-", "_")
+
 
 class SheetsClient:
     def __init__(self, worksheet, cache_ttl_s: int = 10):
@@ -55,7 +63,16 @@ class SheetsClient:
         headers = self._headers_row()
         row_fields = dict(fields)
         row_fields["call_id"] = call_id
-        row = [self._cell_value(row_fields.get(h, "")) for h in headers]
+        row = []
+        for header in headers:
+            value = row_fields.get(header, "")
+            if value == "":
+                normalized_header = _normalize_header(header)
+                for field, aliases in FIELD_ALIASES.items():
+                    if normalized_header in aliases:
+                        value = row_fields.get(field, "")
+                        break
+            row.append(self._cell_value(value))
 
         if call_id in self._index:
             row_number = self._index[call_id]

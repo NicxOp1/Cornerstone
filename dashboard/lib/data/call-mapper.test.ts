@@ -109,6 +109,18 @@ describe("mapRowToCall", () => {
     ]);
   });
 
+  it("lee el encabezado Tools y listas antiguas serializadas", () => {
+    const call = mapRowToCall(
+      HEADERS.map((header) => (header === "tools_used" ? "Tools" : header)),
+      row({ tools_used: "['find_customer:ok', 'create_job:fail']" })
+    );
+
+    expect(call.toolsUsed).toEqual([
+      { name: "find_customer", success: true },
+      { name: "create_job", success: false }
+    ]);
+  });
+
   it("tools_used vacio da lista vacia", () => {
     const call = mapRowToCall(HEADERS, row({ tools_used: "" }));
     expect(call.toolsUsed).toEqual([]);

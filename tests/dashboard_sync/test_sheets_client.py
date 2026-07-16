@@ -89,6 +89,18 @@ class UpsertNewCallTests(unittest.TestCase):
 
         self.assertEqual(ws._data[1], ["call_1", "find_customer:ok,create_job:fail"])
 
+    def test_tools_alias_header_is_filled_from_tools_used_field(self):
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "Tools"])
+        client = SheetsClient(ws, cache_ttl_s=10)
+
+        client.upsert_call_row(
+            "call_1",
+            {"tools_used": ["find_customer:ok", "create_job:fail"]},
+        )
+
+        self.assertEqual(ws._data[1], ["call_1", "find_customer:ok,create_job:fail"])
+
     def test_empty_list_field_becomes_empty_string(self):
         from dashboard_sync.sheets_client import SheetsClient
         ws = FakeWorksheet(headers=["call_id", "failed_tools"])
