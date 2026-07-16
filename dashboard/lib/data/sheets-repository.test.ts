@@ -20,6 +20,7 @@ const HEADERS = [
   "is_spam",
   "is_stalled",
   "failed_tools",
+  "tools_used",
   "summary",
   "booking_effectiveness",
   "recording_blob_url",
