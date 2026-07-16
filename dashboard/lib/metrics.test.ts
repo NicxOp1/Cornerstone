@@ -34,6 +34,7 @@ function makeCall(overrides: Partial<Call> = {}): Call {
     isSpam: false,
     isStalled: false,
     failedTools: [],
+    toolsUsed: [],
     summary: "",
     bookingEffectiveness: "confirmed",
     recordingBlobUrl: "",

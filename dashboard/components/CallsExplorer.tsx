@@ -2,19 +2,14 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  StatusChip,
-  bookingLabel,
-  bookingTone,
-  sentimentTone
-} from "@/components/ui/StatusChip";
-import type { Call } from "@/lib/types/call";
-import { formatDuration } from "@/lib/utils/format";
+import { StatusChip, sentimentTone } from "@/components/ui/StatusChip";
+import type { Call, ToolUsage } from "@/lib/types/call";
+import { formatDuration, formatToolName } from "@/lib/utils/format";
 import { cn } from "@/lib/utils/cn";
 
 const PAGE_SIZE = 25;
 
-const SELECTS: Array<{ key: "sentiment" | "result" | "booking"; label: string; options: Array<{ value: string; label: string }> }> = [
+const SELECTS: Array<{ key: "sentiment" | "result" | "tools"; label: string; options: Array<{ value: string; label: string }> }> = [
   {
     key: "sentiment",
     label: "Sentiment",
@@ -35,24 +30,45 @@ const SELECTS: Array<{ key: "sentiment" | "result" | "booking"; label: string; o
     ]
   },
   {
-    key: "booking",
-    label: "Booking",
+    key: "tools",
+    label: "Tools",
     options: [
-      { value: "all", label: "All bookings" },
-      { value: "confirmed", label: "Confirmed" },
-      { value: "pending", label: "Pending" },
-      { value: "mismatch", label: "Mismatch" },
-      { value: "not_applicable", label: "No booking" }
+      { value: "all", label: "All tools" },
+      { value: "ok", label: "All succeeded" },
+      { value: "failed", label: "Had a failure" },
+      { value: "none", label: "No tools used" }
     ]
   }
 ];
 
+function ToolsCell({ tools }: { tools: ToolUsage[] }) {
+  if (tools.length === 0) {
+    return <span className="text-xs text-ink-soft">No tools</span>;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tools.map((tool, index) => (
+        <span
+          key={`${tool.name}-${index}`}
+          className={cn(
+            "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium",
+            tool.success ? "bg-good-soft text-good" : "bg-bad-soft text-bad"
+          )}
+        >
+          {formatToolName(tool.name)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export function CallsExplorer({ calls }: { calls: Call[] }) {
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState({ sentiment: "all", result: "all", booking: "all" });
+  const [filters, setFilters] = useState({ sentiment: "all", result: "all", tools: "all" });
   const [page, setPage] = useState(0);
 
-  function update(key: "sentiment" | "result" | "booking", value: string) {
+  function update(key: "sentiment" | "result" | "tools", value: string) {
     setFilters((prev) => ({ ...prev, [key]: value }));
     setPage(0);
   }
@@ -74,7 +90,13 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
         if (filters.result === "fail" && call.callSuccessful === true) {
           return false;
         }
-        if (filters.booking !== "all" && call.bookingEffectiveness !== filters.booking) {
+        if (filters.tools === "ok" && (call.toolsUsed.length === 0 || call.toolsUsed.some((tool) => !tool.success))) {
+          return false;
+        }
+        if (filters.tools === "failed" && !call.toolsUsed.some((tool) => !tool.success)) {
+          return false;
+        }
+        if (filters.tools === "none" && call.toolsUsed.length !== 0) {
           return false;
         }
         return true;
@@ -133,7 +155,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
                   <th className="px-5 py-3 font-semibold">Duration</th>
                   <th className="px-5 py-3 font-semibold">Sentiment</th>
                   <th className="px-5 py-3 font-semibold">Result</th>
-                  <th className="px-5 py-3 font-semibold">Booking</th>
+                  <th className="px-5 py-3 font-semibold">Tools</th>
                   <th className="px-5 py-3 font-semibold">Summary</th>
                   <th className="px-5 py-3 text-right font-semibold">Open</th>
                 </tr>
@@ -163,7 +185,7 @@ export function CallsExplorer({ calls }: { calls: Call[] }) {
                       />
                     </td>
                     <td className="px-5 py-3.5">
-                      <StatusChip tone={bookingTone(call.bookingEffectiveness)} label={bookingLabel(call.bookingEffectiveness)} />
+                      <ToolsCell tools={call.toolsUsed} />
                     </td>
                     <td className="max-w-[280px] px-5 py-3.5 text-ink-soft">
                       <Link href={`/calls/${call.callId}`} className="line-clamp-1 block">

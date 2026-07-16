@@ -9,6 +9,12 @@ const NAV_ITEMS = [
   { href: "/", icon: "overview", label: "Overview", matchers: ["/"] },
   { href: "/bookings", icon: "bookings", label: "Bookings", matchers: ["/bookings", "/reservas"] },
   {
+    href: "/callbacks",
+    icon: "callbacks",
+    label: "Callbacks",
+    matchers: ["/callbacks"]
+  },
+  {
     href: "/conversation",
     icon: "conversation",
     label: "Conversation",
@@ -25,6 +31,7 @@ interface SidebarProps {
   isCollapsed: boolean;
   onClose: () => void;
   unreadCount?: number;
+  emergencyPendingCount?: number;
 }
 
 function isActivePath(pathname: string, matchers: string[]) {
@@ -70,6 +77,12 @@ function NavIcon({ icon }: { icon: string }) {
           <path d="M4 5h16v10H8l-4 4V5Z" />
         </svg>
       );
+    case "callbacks":
+      return (
+        <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M12 9v4l2.5 2.5M21 12a9 9 0 1 1-9-9 9 9 0 0 1 9 9Z" />
+        </svg>
+      );
     case "overview":
     default:
       return (
@@ -80,7 +93,7 @@ function NavIcon({ icon }: { icon: string }) {
   }
 }
 
-export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: SidebarProps) {
+export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0, emergencyPendingCount = 0 }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -151,6 +164,16 @@ export function Sidebar({ isOpen, isCollapsed, onClose, unreadCount = 0 }: Sideb
                       )}
                     >
                       {isCollapsed ? "." : unreadCount}
+                    </span>
+                  ) : null}
+                  {item.href === "/callbacks" && emergencyPendingCount > 0 ? (
+                    <span
+                      className={cn(
+                        "ml-auto rounded-full bg-bad px-2 py-0.5 text-[11px] font-bold text-white",
+                        isCollapsed && "absolute right-3 top-3 h-3 w-3 px-0 py-0 text-[0]"
+                      )}
+                    >
+                      {isCollapsed ? "." : emergencyPendingCount}
                     </span>
                   ) : null}
                 </Link>

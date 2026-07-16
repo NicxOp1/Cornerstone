@@ -77,6 +77,18 @@ class UpsertNewCallTests(unittest.TestCase):
 
         self.assertEqual(ws._data[1], ["call_1", "create_job,cancel_appointment"])
 
+    def test_tools_used_are_serialized_without_dropping_statuses(self):
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "tools_used"])
+        client = SheetsClient(ws, cache_ttl_s=10)
+
+        client.upsert_call_row(
+            "call_1",
+            {"tools_used": ["find_customer:ok", "create_job:fail"]},
+        )
+
+        self.assertEqual(ws._data[1], ["call_1", "find_customer:ok,create_job:fail"])
+
     def test_empty_list_field_becomes_empty_string(self):
         from dashboard_sync.sheets_client import SheetsClient
         ws = FakeWorksheet(headers=["call_id", "failed_tools"])
@@ -140,6 +152,33 @@ class IndexCacheTests(unittest.TestCase):
         client.upsert_call_row("call_3", {"call_id": "call_3"})
 
         self.assertGreater(ws.col_values_calls, calls_after_first_upsert)
+
+
+class HeaderCacheTests(unittest.TestCase):
+    def test_headers_not_reread_within_ttl_window(self):
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "summary"])
+        client = SheetsClient(ws, cache_ttl_s=10)
+
+        client.upsert_call_row("call_1", {"call_id": "call_1", "summary": "a"})
+        ws._data[0] = ["call_id", "summary", "tools_used"]  # alguien agrega una columna a mano
+        client.upsert_call_row("call_2", {"call_id": "call_2", "summary": "b", "tools_used": "x"})
+
+        # todavia dentro del TTL: sigue escribiendo con los headers viejos (2 columnas)
+        self.assertEqual(ws._data[2], ["call_2", "b"])
+
+    def test_headers_reread_after_ttl_expires(self):
+        import time
+        from dashboard_sync.sheets_client import SheetsClient
+        ws = FakeWorksheet(headers=["call_id", "summary"])
+        client = SheetsClient(ws, cache_ttl_s=0.05)
+
+        client.upsert_call_row("call_1", {"call_id": "call_1", "summary": "a"})
+        ws._data[0] = ["call_id", "summary", "tools_used"]
+        time.sleep(0.06)
+        client.upsert_call_row("call_2", {"call_id": "call_2", "summary": "b", "tools_used": "x"})
+
+        self.assertEqual(ws._data[2], ["call_2", "b", "x"])
 
 
 class GetExistingCallIdsTests(unittest.TestCase):

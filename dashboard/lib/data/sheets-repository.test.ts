@@ -47,6 +47,7 @@ function makeRow(id: string, overrides: Record<string, string> = {}): string[] {
     is_spam: "False",
     is_stalled: "False",
     failed_tools: "",
+    tools_used: "",
     summary: "",
     booking_effectiveness: "confirmed",
     recording_blob_url: "",
@@ -90,13 +91,20 @@ describe("applyFilters", () => {
 
 describe("SheetsCallsRepository.getCalls", () => {
   it("devuelve las llamadas mapeadas desde la sheet falsa", async () => {
-    const client = new FakeSheetsValuesClient([makeRow("call_1"), makeRow("call_2")]);
+    const client = new FakeSheetsValuesClient([
+      makeRow("call_1", { tools_used: "find_customer:ok,create_job:fail" }),
+      makeRow("call_2")
+    ]);
     const repo = new SheetsCallsRepository(client);
 
     const calls = await repo.getCalls();
 
     expect(calls).toHaveLength(2);
     expect(calls[0].callId).toBe("call_1");
+    expect(calls[0].toolsUsed).toEqual([
+      { name: "find_customer", success: true },
+      { name: "create_job", success: false }
+    ]);
   });
 
   it("aplica los filtros pasados", async () => {

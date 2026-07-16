@@ -20,6 +20,7 @@ const HEADERS = [
   "is_spam",
   "is_stalled",
   "failed_tools",
+  "tools_used",
   "summary",
   "booking_effectiveness",
   "recording_blob_url",
@@ -47,6 +48,7 @@ function row(overrides: Record<string, string>): string[] {
     is_spam: "False",
     is_stalled: "False",
     failed_tools: "",
+    tools_used: "",
     summary: "Booked appointment",
     booking_effectiveness: "confirmed",
     recording_blob_url: "https://blob.example.com/recordings/call_1.wav",
@@ -85,6 +87,31 @@ describe("mapRowToCall", () => {
   it("failed_tools vacio da lista vacia, no ['']", () => {
     const call = mapRowToCall(HEADERS, row({ failed_tools: "" }));
     expect(call.failedTools).toEqual([]);
+  });
+
+  it("parsea tools_used en pares nombre:estado", () => {
+    const call = mapRowToCall(HEADERS, row({ tools_used: "find_customer:ok,create_job:fail" }));
+    expect(call.toolsUsed).toEqual([
+      { name: "find_customer", success: true },
+      { name: "create_job", success: false }
+    ]);
+  });
+
+  it("tolera espacios, saltos de linea y filas antiguas sin estado", () => {
+    const call = mapRowToCall(
+      HEADERS.map((header) => (header === "tools_used" ? "Tools Used" : header)),
+      row({ tools_used: " find_customer\ncreate_job " })
+    );
+
+    expect(call.toolsUsed).toEqual([
+      { name: "find_customer", success: true },
+      { name: "create_job", success: true }
+    ]);
+  });
+
+  it("tools_used vacio da lista vacia", () => {
+    const call = mapRowToCall(HEADERS, row({ tools_used: "" }));
+    expect(call.toolsUsed).toEqual([]);
   });
 
   it("booking_effectiveness vacio default a pending", () => {

@@ -4,6 +4,11 @@ export type BookingEffectiveness =
   | "not_applicable"
   | "pending";
 
+export interface ToolUsage {
+  name: string;
+  success: boolean;
+}
+
 export interface Call {
   callId: string;
   day: string;
@@ -23,6 +28,7 @@ export interface Call {
   isSpam: boolean;
   isStalled: boolean;
   failedTools: string[];
+  toolsUsed: ToolUsage[];
   summary: string;
   bookingEffectiveness: BookingEffectiveness;
   bookingAction: string;
