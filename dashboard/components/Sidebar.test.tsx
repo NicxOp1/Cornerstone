@@ -32,7 +32,7 @@ vi.mock("next/link", () => ({
 }));
 
 describe("Sidebar", () => {
-  it("muestra los items de navegacion visibles", () => {
+  it("muestra los items de navegacion visibles, incluyendo Callbacks", () => {
     render(<Sidebar isOpen={true} isCollapsed={false} onClose={() => {}} />);
 
     ["Overview", "Bookings", "Callbacks", "Conversation", "Cost", "Calls"].forEach((label) => {
