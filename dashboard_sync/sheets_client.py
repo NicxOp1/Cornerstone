@@ -86,6 +86,13 @@ class SheetsClient:
         self._refresh_index_if_stale(force=True)
         return list(self._index.keys())
 
+    def has_call(self, call_id: str) -> bool:
+        """¿Ya existe una fila para este call_id? Usa el índice cacheado (no
+        fuerza refresh) — en reconcile el índice ya viene caliente de
+        get_existing_call_ids(), así que no cuesta una llamada extra a la API."""
+        self._refresh_index_if_stale()
+        return call_id in self._index
+
 
 def connect(sheet_id: str, service_account_info: dict, worksheet_name: str = "Calls", cache_ttl_s: int = 10) -> SheetsClient:
     """Construye un SheetsClient real contra la API de Google. No se cubre con

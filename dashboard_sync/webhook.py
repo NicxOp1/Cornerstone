@@ -41,6 +41,15 @@ async def call_synced(request: Request, token: str = ""):
     if not call_id:
         raise HTTPException(status_code=422, detail="No se pudo identificar call_id en el payload")
 
+    # Retell dispara varios eventos al mismo webhook (call_started / call_ended /
+    # call_analyzed). Si procesamos un call_ended antes de que el post-call
+    # analysis esté listo, la fila queda con summary vacío y marcada como
+    # sincronizada -> el poll de reconcile la ve presente y la saltea para
+    # siempre. Diferimos hasta que el análisis exista; el poll (cada ~10 min) la
+    # toma cuando esté completa. Misma comprobación que usa reconcile.
+    if not reconcile._analysis_ready(raw_call):
+        return {"status": "deferred", "call_id": call_id}
+
     try:
         await pipeline.process_call(raw_call, _get_sheets_client(), config.BLOB_READ_WRITE_TOKEN)
     except Exception:

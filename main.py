@@ -409,40 +409,51 @@ async def create_customer(customer: utils.CustomerCreateRequest):
 
             contact_url = f"https://api.servicetitan.io/crm/v2/tenant/{TENANT_ID}/customers/{customer_id}/contacts"
 
+            # Agregar teléfono/email es NO FATAL. El cliente y la ubicación YA
+            # existen en ServiceTitan a esta altura, así que pase lo que pase con
+            # los contactos devolvemos el customerId para que el booking siga.
+            # Antes un fallo acá lanzaba HTTPException -> el endpoint devolvía
+            # {"error": ""} y quedaba un cliente huérfano; el agente reintentaba
+            # y creaba un duplicado. (Ver docs/2026-07-18-plan-implementacion-qa.md)
             if customer.number:
-                clean_number = re.sub(r"\D", "", customer.number)
-                mobile_payload = {
-                    "type": "MobilePhone",
-                    "value": clean_number,
-                    "memo": "Customer phone number"
-                }
-                response_mobile = await client.post(contact_url, headers=headers, json=mobile_payload)
-                if response_mobile.status_code == 200:
-                    print("Mobile contact data added successfully ✅")
-                else:
-                    print(f"Error adding mobile contact data: {response_mobile.text}")
-                    raise HTTPException(
-                        status_code=response_mobile.status_code,
-                        detail=f"Failed to add mobile contact data: {response_mobile.text}",
-                    )
+                try:
+                    clean_number = re.sub(r"\D", "", customer.number)
+                    mobile_payload = {
+                        "type": "MobilePhone",
+                        "value": clean_number,
+                        "memo": "Customer phone number"
+                    }
+                    response_mobile = await client.post(contact_url, headers=headers, json=mobile_payload)
+                    if response_mobile.status_code == 200:
+                        print("Mobile contact data added successfully ✅")
+                    else:
+                        print(f"⚠️ No se pudo agregar el teléfono (no fatal): "
+                              f"{response_mobile.status_code} - {response_mobile.text}")
+                except Exception as e:
+                    print(f"⚠️ Error agregando teléfono (no fatal): {e}")
 
-            if customer.email:
-                email_payload = {
-                    "type": "Email",
-                    "value": customer.email,
-                    "memo": "Customer email"
-                }
-                response_email = await client.post(contact_url, headers=headers, json=email_payload)
-                if response_email.status_code == 200:
-                    print("Email contact data added successfully ✅")
-                else:
-                    print(f"Error adding email contact data: {response_email.text}")
-                    raise HTTPException(
-                        status_code=response_email.status_code,
-                        detail=f"Failed to add email contact data: {response_email.text}",
-                    )
+            # Solo intentar el email si quedó en formato válido tras normalizar.
+            # Un email dictado que normalize_email no pudo rearmar (p.ej.
+            # "m p a n t a z i s ...") haría fallar el POST sin aportar nada.
+            if customer.email and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", customer.email):
+                try:
+                    email_payload = {
+                        "type": "Email",
+                        "value": customer.email,
+                        "memo": "Customer email"
+                    }
+                    response_email = await client.post(contact_url, headers=headers, json=email_payload)
+                    if response_email.status_code == 200:
+                        print("Email contact data added successfully ✅")
+                    else:
+                        print(f"⚠️ No se pudo agregar el email (no fatal): "
+                              f"{response_email.status_code} - {response_email.text}")
+                except Exception as e:
+                    print(f"⚠️ Error agregando email (no fatal): {e}")
+            elif customer.email:
+                print(f"⚠️ Email en formato no válido tras normalizar, se omite el contacto: {customer.email!r}")
 
-        print("Customer created successfully with contact data added ✅")
+        print("Customer created successfully ✅")
         return {"customerId": customer_id, "locationId": location_id}
     except ValueError as e:
         print(f"[create_customer] ValueError: {e}")
@@ -949,7 +960,11 @@ async def create_customer_endpoint(data: utils.CreateCustomerToolRequest, reques
 
         except Exception as e:
             print(f"Error processing createCustomer request: {e}")
-            return {"error": str(e)}
+            # Nunca devolver un error vacío: str() de algunas excepciones
+            # (p.ej. HTTPException de Starlette) es "" y dejaba al agente sin
+            # nada accionable -> {"error": ""}. Garantizamos un mensaje real.
+            msg = str(e).strip() or f"create_customer_failed: {type(e).__name__}"
+            return {"error": msg}
 
     return await _run_idempotent(request, "createCustomer", args_obj, action)
 

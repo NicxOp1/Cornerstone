@@ -166,5 +166,45 @@ class ProcessCallPartialFailureTests(unittest.IsolatedAsyncioTestCase):
         sheets.upsert_call_row.assert_called_once_with("call_1", result)
 
 
+class BackstopAlertTests(unittest.IsolatedAsyncioTestCase):
+    @patch("dashboard_sync.pipeline.office_alert.send_backstop_alert")
+    @patch("dashboard_sync.pipeline.booking_effectiveness.check_call", new_callable=AsyncMock)
+    @patch("dashboard_sync.pipeline.blob_storage.upload_transcript")
+    @patch("dashboard_sync.pipeline.blob_storage.upload_recording")
+    async def test_backstop_fires_on_first_sync(
+        self, mock_upload_recording, mock_upload_transcript, mock_check_call, mock_alert
+    ):
+        from dashboard_sync import pipeline
+
+        mock_upload_recording.return_value = ""
+        mock_upload_transcript.return_value = ""
+        mock_check_call.return_value = "pending"
+        sheets = MagicMock()
+        sheets.has_call.return_value = False  # primera vez que se sincroniza
+
+        await pipeline.process_call(_minimal_call(), sheets, "fake-blob-token")
+
+        mock_alert.assert_called_once()
+
+    @patch("dashboard_sync.pipeline.office_alert.send_backstop_alert")
+    @patch("dashboard_sync.pipeline.booking_effectiveness.check_call", new_callable=AsyncMock)
+    @patch("dashboard_sync.pipeline.blob_storage.upload_transcript")
+    @patch("dashboard_sync.pipeline.blob_storage.upload_recording")
+    async def test_backstop_skipped_when_already_synced(
+        self, mock_upload_recording, mock_upload_transcript, mock_check_call, mock_alert
+    ):
+        from dashboard_sync import pipeline
+
+        mock_upload_recording.return_value = ""
+        mock_upload_transcript.return_value = ""
+        mock_check_call.return_value = "pending"
+        sheets = MagicMock()
+        sheets.has_call.return_value = True  # la fila ya existia -> no reenviar
+
+        await pipeline.process_call(_minimal_call(), sheets, "fake-blob-token")
+
+        mock_alert.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

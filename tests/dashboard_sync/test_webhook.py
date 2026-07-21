@@ -54,7 +54,7 @@ class PayloadParsingTests(unittest.TestCase):
 
         resp = client.post(
             "/webhooks/callSynced?token=secret-token",
-            json={"event": "call_analyzed", "call": {"call_id": "call_1"}},
+            json={"event": "call_analyzed", "call": {"call_id": "call_1", "call_analysis": {"call_summary": "ok"}}},
         )
 
         self.assertEqual(resp.status_code, 200)
@@ -72,7 +72,7 @@ class PayloadParsingTests(unittest.TestCase):
 
         resp = client.post(
             "/webhooks/callSynced?token=secret-token",
-            json={"call_id": "call_2", "duration_ms": 1000},
+            json={"call_id": "call_2", "duration_ms": 1000, "call_analysis": {"call_summary": "ok"}},
         )
 
         self.assertEqual(resp.status_code, 200)
@@ -100,11 +100,31 @@ class DownstreamFailureTests(unittest.TestCase):
 
         resp = client.post(
             "/webhooks/callSynced?token=secret-token",
-            json={"call_id": "call_3"},
+            json={"call_id": "call_3", "call_analysis": {"call_summary": "ok"}},
         )
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "error", "call_id": "call_3"})
+
+
+class AnalysisDeferralTests(unittest.TestCase):
+    @patch("dashboard_sync.webhook.pipeline.process_call", new_callable=AsyncMock)
+    @patch("dashboard_sync.webhook._get_sheets_client")
+    @patch("dashboard_sync.webhook.config")
+    def test_event_without_analysis_is_deferred_not_written(self, mock_config, mock_get_sheets, mock_process_call):
+        # Un call_ended sin call_summary NO debe escribir la fila (quedaria con
+        # summary vacio y el poll la saltearia). Se difiere; el poll la toma luego.
+        mock_config.DASHBOARD_SYNC_TOKEN = "secret-token"
+        client = TestClient(_build_test_app())
+
+        resp = client.post(
+            "/webhooks/callSynced?token=secret-token",
+            json={"event": "call_ended", "call": {"call_id": "call_9"}},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"status": "deferred", "call_id": "call_9"})
+        mock_process_call.assert_not_awaited()
 
 
 class ReconcileEndpointTests(unittest.TestCase):
