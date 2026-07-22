@@ -12,6 +12,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import utils as utils
 import config
+from dashboard_sync import callback_sheet
 from dashboard_sync.webhook import router as dashboard_sync_router
 import normalize
 import logging
@@ -1972,6 +1973,40 @@ async def send_office_message(data: utils.OfficeMessageToolRequest, request: Req
             return {"error": "Failed to send message. Please try again or call the office directly."}
 
     return await _run_idempotent(request, "sendOfficeMessage", args_obj, action)
+
+
+@app.post("/missedTransferredCall")
+async def missed_transferred_call(data: utils.OfficeMessageToolRequest, request: Request):
+    print("Processing missedTransferredCall request... 🔄")
+
+    if isinstance(data.args, dict):
+        args_obj = utils.OfficeMessageRequest.parse_obj(data.args)
+    else:
+        args_obj = data.args
+    data = args_obj
+
+    async def action():
+        call_id = await _resolve_call_id(request, args_obj)
+        number = normalize.normalize_phone(data.number) if data.number else data.number
+        email = normalize.normalize_email(data.email) if data.email else None
+        try:
+            await asyncio.to_thread(
+                callback_sheet.append_callback,
+                name=data.name,
+                number=number,
+                reason=data.reason,
+                callback=data.callback,
+                is_emergency=data.isEmergency,
+                email=email,
+                call_id=call_id,
+            )
+            print("missedTransferredCall logged to sheet ✅")
+            return {"status": "Accepted"}
+        except Exception as e:
+            print(f"❌ Error logging callback to sheet: {e}")
+            return {"error": "Could not log the callback right now. Please try again."}
+
+    return await _run_idempotent(request, "missedTransferredCall", args_obj, action)
 
 
 # start the server: fastapi dev main.py
