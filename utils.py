@@ -85,8 +85,8 @@ class JobCreateRequest(BaseModel):
     priority: str = Field(..., description="Priority of the job request")
     businessUnitId: int = Field(..., description="ID of the business unit")
     campaignId: int = Field(..., description="ID of the campaign")
-    jobStartTime: str = Field(..., description="Start time in ISO 8601 format")
-    jobEndTime: str = Field(..., description="End time in ISO 8601 format")
+    jobStartTime: str = Field(..., description="Massachusetts local time, Z-suffixed but NOT UTC (see build_agent_v13.py)")
+    jobEndTime: str = Field(..., description="Massachusetts local time, Z-suffixed but NOT UTC (see build_agent_v13.py)")
     summary: str = Field(..., description="Brief summary of the job request")
 
 class JobCreateToolRequest(ToolRequestWrapper[JobCreateRequest]):
@@ -124,7 +124,7 @@ class FindAppointmentToolRequest(ToolRequestWrapper[FindAppointmentData]):
 # =============================================================================
 
 class ReScheduleData(BaseModel):
-    newSchedule: str = Field(..., description="Requested time for the job in ISO 8601 format")
+    newSchedule: str = Field(..., description="Massachusetts local time, Z-suffixed but NOT UTC (see build_agent_v13.py)")
     jobTypeId: int = Field(..., description="ID of the job type to check availability for")
     businessUnitId: int = Field(..., description="ID of the business unit to check availability for")
     appointmentId: Optional[int] = Field(None, description="ID of the appointment to be rescheduled")
@@ -139,7 +139,7 @@ class ReScheduleToolRequest(ToolRequestWrapper[ReScheduleData]):
 # =============================================================================
 
 class RequestArgs(BaseModel):
-    time: str = Field(..., description="Requested time for the job in ISO 8601 format")
+    time: str = Field(..., description="Massachusetts local time, Z-suffixed but NOT UTC (see build_agent_v13.py)")
     jobTypeId: int = Field(..., description="ID of the job type")
 
 class BookingRequest(BaseModel):

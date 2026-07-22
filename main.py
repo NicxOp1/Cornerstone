@@ -1091,8 +1091,8 @@ async def create_job(data: utils.JobCreateToolRequest, request: Request):
                         "arrivalWindowEnd": data.jobEndTime,
                     }
                 ],
-                "scheduledDate": datetime.now().strftime("%Y-%m-%d"),
-                "scheduledTime": datetime.now().strftime("%H:%M"),
+                "scheduledDate": datetime.now(EASTERN_TIME).strftime("%Y-%m-%d"),
+                "scheduledTime": datetime.now(EASTERN_TIME).strftime("%H:%M"),
                 # escape() evita stored-XSS en la UI de ServiceTitan (el summary se
                 # renderiza como HTML para los dispatchers).
                 "summary": escape(data.summary or "")
